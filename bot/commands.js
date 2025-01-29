@@ -21,7 +21,6 @@ const User=require('../models/User.js');
               }]]
             }
           });
-        bot.sendMessage(chatId, `Link: ${link.originalLink}`);
           logger.info(`Deep link accessed: ${deepLink}`);
         }else{
           return bot.sendMessage(chatId, '❌ Link not found or invalid.');
