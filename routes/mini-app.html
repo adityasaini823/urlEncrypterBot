@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Secure Link Redirect</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  Redirecting....
+  <script>
+    const API_URL = process.env.API_URL;
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    async function redirect() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const uuid = urlParams.get('uuid');
+      if (!uuid) {
+        alert('Invalid request: Missing UUID.');
+        return;
+      }
+      try {
+        const response = await fetch(`${API_URL}/api/resolve?uuid=${uuid}`);
+        const data = await response.json();
+        const channelUsername=data.originalLink.split("https://t.me/")[1];
+        if (channelUsername) {
+          window.location.href = `tg://resolve?domain=${channelUsername}`;
+          tg.close();
+        } else {
+          alert('Invalid or expired link');
+        }
+      } catch (error) {
+        alert('Error processing your request');
+      }
+    }
+    redirect();
+  </script>
+</body>
+</html>
