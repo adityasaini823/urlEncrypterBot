@@ -66,9 +66,10 @@ const setupBot = (bot) => {
       // Create secure link
       const newLink = new Link({
         uuid,
+        message: msg.text,
         originalLink: rawLink,
         user: user._id,
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days expiration
+        // expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days expiration
       });
 
       await newLink.save();
