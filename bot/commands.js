@@ -50,8 +50,8 @@ const User=require('../models/User.js');
   });
   
   function validated(text) {
-    const regex = /^https?:\/\/t\.me\/[a-zA-Z0-9_]{5,32}$/;
-    return regex.test(text);
+    const regex = /^https?:\/\/t\.me\/[a-zA-Z0-9_+-]{5,32}$/;
+     return regex.test(text);
   }
 }
 module.exports={setupBot};
