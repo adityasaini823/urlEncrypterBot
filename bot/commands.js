@@ -15,36 +15,18 @@ const User=require('../models/User.js');
     const chatId = msg.chat.id;
     const text = msg.text; 
     const uuid = uuidv4(); 
-  
+    const link = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}&mode=compact`;
     if (validated(text)) {
         const url = text;
-        const username = text.split('https://t.me/')[1];
-        let user = await User.findOne({ chatId });
-        if (!user) {
-            user = new User({
-                chatId: chatId,
-                links: [],
-            });
-            await user.save();
-            console.log("User created:", user);
-        }
+        
         const newLink = new Link({
             uuid: uuid,
-            message: text, 
             originalLink: url,
-            user: user._id, 
+            clicks:0,
         });
-  
         await newLink.save();
-  
-        user.links.push(newLink._id);
-        await user.save(); 
-  
-        const link = `https://t.me/Url_Encrypter_bot/SecureLinks?startapp=${uuid}&mode=compact`;
-  
         bot.sendMessage(chatId, `Here is your link: ${link}`);
     } else {
-        // If the URL is invalid
         bot.sendMessage(chatId, "Invalid link.");
     }
   });

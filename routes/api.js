@@ -6,14 +6,34 @@ const router = express.Router();
 
 router.get('/resolve', async (req, res) => {
   try {
-    const { uuid } = req.query;
+    const { uuid, id: telegramUserId, first_name: firstName, last_name: lastName, username, language_code: languageCode } = req.body;
     if (!uuid) return res.status(400).json({ error: 'UUID parameter required' });
-
-    const link = await Link.findOneAndUpdate(
-      { uuid },
-      { $inc: { clicks: 1 } },
-      { new: true }
-    ).populate('user');  // Populate the user field to get the associated user
+  // Find or create user
+  let user = await User.findOne({ telegramUserId });
+  if (!user) {
+    user = new User({
+      telegramUserId,
+      firstName,
+      lastName,
+      username,
+      languageCode,
+      links: [uuid] // Initially associate this uuid if it's the user's first interaction
+    });
+    await user.save();
+  } else if (!user.links.includes(uuid)) {
+    // If the uuid is not already associated with the user, add it
+    user.links.push(uuid);
+    await user.save();
+  }
+ // Populate the user field to get the associated user
+ const link = await Link.findOneAndUpdate(
+  { uuid },
+  {
+    $inc: { clicks: 1 },
+    userId: telegramUserId // Ensure link knows which user clicked it
+  },
+  { new: true }
+);
     logger.info(link);
     if (!link) {
       return res.status(404).json({ error: 'Link not found' });
