@@ -19,10 +19,6 @@ const User=require('../models/User.js');
     if (validated(text)) {
         const url = text;
         const username = text.split('https://t.me/')[1];
-        const checkResult = await checkTelegramUsername(username);
-        if (!checkResult.exists) {
-           bot.sendMessage(msg.chat.id, "❌ This username may not exist on Telegram");
-        }
         let user = await User.findOne({ chatId });
         if (!user) {
             user = new User({
