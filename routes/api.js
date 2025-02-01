@@ -9,15 +9,14 @@ router.post('/resolve', async (req, res) => {
     const { uuid, id: telegramUserId, first_name: firstName, last_name: lastName, username, language_code: languageCode } = req.body;
     if (!uuid) return res.status(400).json({ error: 'UUID parameter required' });
   // Find or create user
+  logger.log()
   let user = await User.findOne({ telegramUserId });
   if (!user) {
     user = new User({
       telegramUserId,
       firstName,
       lastName,
-      username,
-      languageCode,
-      links: [uuid] // Initially associate this uuid if it's the user's first interaction
+      username, // Initially associate this uuid if it's the user's first interaction
     });
     await user.save();
   } else if (!user.links.includes(uuid)) {
