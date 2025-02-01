@@ -2,7 +2,6 @@ const express = require('express');
 const Link = require('../models/Link.js');
 const logger = require('../utils/logger.js');
 const User=require('../models/User.js');
-const cors=require("cors");
 const router = express.Router();
 
 router.get('/resolve', async (req, res) => {

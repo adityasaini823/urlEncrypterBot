@@ -5,72 +5,57 @@ const User=require('../models/User.js');
 
  const setupBot = (bot)=> {
   // Handle /start command
-  bot.onText(/\/start/, async (msg) => {
+  bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
-    const deepLink = msg.text.split(' ')[1];
-
-    if (deepLink) {
-      try {
-        const link = await Link.findOne({ uuid: deepLink }).populate('user');
-        if (link) {
-          bot.sendMessage(chatId, 'Opening secure link...', {
-            reply_markup: {
-              inline_keyboard: [[{
-                text: 'Launch',
-                web_app: { url: `${process.env.MINI_APP_URL}?uuid=${deepLink}` }
-              }]]
-            }
-          });
-          logger.info(`Deep link accessed: ${deepLink}`);
-        }else{
-          return bot.sendMessage(chatId, '❌ Link not found or invalid.');
-        }
-      } catch (error) {
-        logger.error(`Deep link error: ${error.message}`);
-      }
-    } else {
-      const welcomeMsg = `Welcome! Use /securelink followed by your Telegram URL to create a secure link.\nExample:\n/securelink https://t.me/your_channel`;
-      bot.sendMessage(chatId, welcomeMsg);
-    }
+    bot.sendMessage(chatId, 'Hello Sir, please send link here to secure it .\n Link pattern " https://t.me/exampleUsername "');
   });
 
   // Handle /securelink command
-  bot.onText(/\/securelink (.+)/, async (msg, match) => {
+  bot.onText(/^(https?:\/\/[^\s]+)/, async (msg) => {
     const chatId = msg.chat.id;
-    const rawLink = match[1].trim();
-    const uuid = uuidv4();
-
-    if (!rawLink.startsWith('https://t.me/')) {
-      return bot.sendMessage(chatId, '❌ Invalid Telegram link format. Must start with https://t.me/');
-    }
-
-    try {
-      let user = await User.findOne({ chatId });
-      if (!user) {
-        user = new User({ chatId });
-        await user.save();
-      }
-      const newLink = new Link({
-        uuid,
-        message: msg.text,
-        originalLink: rawLink,
-        user: user._id,
-      });
-      await newLink.save();
-
-      // Add the new link to the user's links array
-      user.links.push(newLink._id);
-      await user.save();
-      
-      const maskedLink = `https://t.me/${process.env.BOT_USERNAME}?start=${uuid}`;
-      
-      bot.sendMessage(chatId, `🔒 Secure link created:\n${maskedLink}`);
-      logger.info(`New link created for chat ${chatId}: ${maskedLink}`);
-
-    } catch (error) {
-      logger.error(`Link creation error: ${error.message}`);
-      bot.sendMessage(chatId, '❌ Error creating secure link. Please try again.');
+    const text = msg.text; 
+    const uuid = uuidv4(); 
+  
+    if (validated(text)) {
+        const url = text;
+        const username = text.split('https://t.me/')[1];
+        const checkResult = await checkTelegramUsername(username);
+        if (!checkResult.exists) {
+           bot.sendMessage(msg.chat.id, "❌ This username may not exist on Telegram");
+        }
+        let user = await User.findOne({ chatId });
+        if (!user) {
+            user = new User({
+                chatId: chatId,
+                links: [],
+            });
+            await user.save();
+            console.log("User created:", user);
+        }
+        const newLink = new Link({
+            uuid: uuid,
+            message: text, 
+            originalLink: url,
+            user: user._id, 
+        });
+  
+        await newLink.save();
+  
+        user.links.push(newLink._id);
+        await user.save(); 
+  
+        const link = `https://t.me/Test_Encryptions_bot/hacked?startapp=${uuid}&mode=compact`;
+  
+        bot.sendMessage(chatId, `Here is your link: ${link}`);
+    } else {
+        // If the URL is invalid
+        bot.sendMessage(chatId, "Invalid link.");
     }
   });
+  
+  function validated(text) {
+    const regex = /^https?:\/\/t\.me\/[a-zA-Z0-9_]{5,32}$/;
+    return regex.test(text);
+  }
 }
 module.exports={setupBot};

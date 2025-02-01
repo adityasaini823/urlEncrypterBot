@@ -6,7 +6,6 @@ const { setupBot } = require('./bot/commands.js');
 const apiRouter = require('./routes/api.js');
 const logger = require('./utils/logger.js');
 const cors=require("cors");
-
 const app = express();
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
