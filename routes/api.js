@@ -4,7 +4,7 @@ const logger = require('../utils/logger.js');
 const User=require('../models/User.js');
 const router = express.Router();
 
-router.get('/resolve', async (req, res) => {
+router.post('/resolve', async (req, res) => {
   try {
     const { uuid, id: telegramUserId, first_name: firstName, last_name: lastName, username, language_code: languageCode } = req.body;
     if (!uuid) return res.status(400).json({ error: 'UUID parameter required' });
