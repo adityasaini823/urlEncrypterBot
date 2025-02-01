@@ -40,7 +40,7 @@ const User=require('../models/User.js');
         user.links.push(newLink._id);
         await user.save(); 
   
-        const link = `https://t.me/Test_Encryptions_bot/hacked?startapp=${uuid}&mode=compact`;
+        const link = `https://t.me/Test_Encryptions_bot/SecureLinks?startapp=${uuid}&mode=compact`;
   
         bot.sendMessage(chatId, `Here is your link: ${link}`);
     } else {
