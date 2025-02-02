@@ -18,16 +18,14 @@ const setupBot = (bot) => {
     logger.error('Error setting bot commands:', error);
   });
 
-  // Add admin keyboard helper function
+  // Replace sendAdminKeyboard function with new inline version
   const sendAdminKeyboard = async (chatId) => {
-    const adminKeyboard = {
+    const adminInlineKeyboard = {
       reply_markup: {
-        keyboard: [
-          [{text: '/sendmessage'}],
-          [{text: 'Secure a Link'}]  // Changed from 'Shorten a Link' to 'Secure a Link'
-        ],
-        resize_keyboard: true,
-        persistent: true
+        inline_keyboard: [
+          [{ text: '📢 Send Message', callback_data: 'send_message' }],
+          [{ text: '🔒 Secure a Link', callback_data: 'secure_link' }]
+        ]
       }
     };
 
@@ -35,29 +33,89 @@ const setupBot = (bot) => {
       await bot.sendMessage(
         chatId, 
         'Admin Dashboard\n\nYou can:\n- Broadcast messages to users\n- Secure any link by pasting it here', 
-        adminKeyboard
+        adminInlineKeyboard
       );
     } catch (error) {
       logger.error('Error sending admin keyboard:', error);
     }
   };
 
-  // Handle keyboard button clicks
+  // Track admin state for message broadcast
+  let adminState = {};
+
+  // Remove duplicate message handler and keep only one
   bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
-    
-    // Only process for admin
-    if (chatId.toString() !== process.env.BOT_OWNER_ID) return;
+    const text = msg.text;
 
-    switch (msg.text) {
-      case '🔄 Start':
-        // Trigger start command
-        bot.emit('message', { ...msg, text: '/start' });
-        break;
-      case '📢 Send Message':
-        // Trigger sendmessage command
-        bot.emit('message', { ...msg, text: '/sendmessage' });
-        break;
+    // Handle commands
+    if (text && text.startsWith('/')) {
+      // Let the command handlers handle it
+      return;
+    }
+
+    // Handle broadcast state if active
+    if (adminState[chatId]) {
+      if (adminState[chatId].step === 'waiting_message') {
+        adminState[chatId].messageToSend = msg.text;
+        adminState[chatId].step = 'preview';
+        
+        const keyboard = {
+          inline_keyboard: [
+            [
+              { text: 'Confirm', callback_data: 'send_broadcast' },
+              { text: 'Back', callback_data: 'edit_broadcast' }
+            ]
+          ]
+        };
+
+        bot.sendMessage(
+          chatId,
+          `Preview of your message:\n\n${msg.text}\n\nPlease confirm to send or go back to edit.`,
+          { reply_markup: keyboard }
+        );
+      } else if (adminState[chatId].step === 'waiting_link') {
+        if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
+          try {
+            const securedLink = await secureLink(text);
+            await bot.sendMessage(chatId, `Here's your secured link:\n${securedLink}`);
+            // Clear the state after successful link securing
+            delete adminState[chatId];
+          } catch (error) {
+            await bot.sendMessage(chatId, "Sorry, there was an error securing the link. Please try again.");
+            logger.error('Error securing link:', error);
+          }
+        } else {
+          await bot.sendMessage(chatId, "Please send a valid link starting with http:// or https://");
+        }
+      }
+    } else {
+      // Handle link securing logic
+      if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
+        try {
+          const uuid = uuidv4();
+          const securedLink = await Link.create({
+            uuid,  // Generate unique uuid
+            originalLink: text,
+            clicks: 0,  // Optional as it defaults to 0 in schema
+            // user field will be added if you want to track who created the link
+          });
+
+          securedLink.save();
+          const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}&mode=compact`;
+          await bot.sendMessage(chatId, `✅ Here's your secured link:\n${secureUrl}`);
+
+          // If it's admin, keep the admin keyboard visible
+          if (chatId.toString() === process.env.BOT_OWNER_ID) {
+            await sendAdminKeyboard(chatId);
+          }
+        } catch (error) {
+          logger.error('Error securing link:', error);
+          await bot.sendMessage(chatId, 'Sorry, there was an error securing your link. Please try again.');
+        }
+      } else if (text && !text.startsWith('/')) {
+        bot.sendMessage(chatId, "Please send a valid link starting with http:// or https://");
+      }
     }
   });
 
@@ -77,82 +135,6 @@ const setupBot = (bot) => {
     }
   });
 
-  // Handle message input for links and broadcast
-  bot.on('message', async (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text;
-
-    // Skip processing commands
-    if (text && text.startsWith('/')) return;
-
-    // Handle "Secure a Link" button click
-    if (text === 'Secure a Link') {
-      bot.sendMessage(chatId, "Please send me the link you want to secure.");
-      return;
-    }
-
-    // Handle broadcast state if active
-    if (adminState[chatId]) {
-      // If user sends any command, terminate the broadcast process
-      if (msg.text && msg.text.startsWith('/')) {
-        delete adminState[chatId];
-        bot.sendMessage(chatId, 'Broadcast message process terminated.');
-        return;
-      }
-
-      switch (adminState[chatId].step) {
-        case 'waiting_message':
-          adminState[chatId].messageToSend = msg.text;
-          adminState[chatId].step = 'preview';
-          
-          const keyboard = {
-            inline_keyboard: [
-              [
-                { text: 'Confirm', callback_data: 'send_broadcast' },
-                { text: 'Back', callback_data: 'edit_broadcast' }
-              ]
-            ]
-          };
-
-          bot.sendMessage(
-            chatId,
-            `Preview of your message:\n\n${msg.text}\n\nPlease confirm to send or go back to edit.`,
-            { reply_markup: keyboard }
-          );
-          break;
-      }
-    } else {
-      const uuid = uuidv4();
-      // Handle link securing for both admin and regular users
-      if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
-        try {
-          const shortLink = await Link.create({
-            uuid,  // Generate unique uuid
-            originalLink: text,
-            clicks: 0,  // Optional as it defaults to 0 in schema
-            // user field will be added if you want to track who created the link
-          });
-          const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}&mode=compact`;
-          await bot.sendMessage(chatId, `✅ Here's your secured link:\n${secureUrl}`);
-
-          // If it's admin, keep the admin keyboard visible
-          if (chatId.toString() === process.env.BOT_OWNER_ID) {
-            await sendAdminKeyboard(chatId);
-          }
-        } catch (error) {
-          logger.error('Error securing link:', error);
-          await bot.sendMessage(chatId, 'Sorry, there was an error securing your link. Please try again.');
-        }
-      } else if (text && !text.startsWith('/')) {
-        // Handle invalid links
-        bot.sendMessage(chatId, "Please send a valid link starting with http:// or https://");
-      }
-    }
-  });
-
-  // Track admin state for message broadcast
-  let adminState = {};
-
   // Handle /sendmessage command
   bot.onText(/\/sendmessage/, async (msg) => {
     const chatId = msg.chat.id;
@@ -167,11 +149,35 @@ const setupBot = (bot) => {
     bot.sendMessage(chatId, 'Please send the message you want to broadcast to all users.');
   });
 
-  // Handle broadcast actions
+  // Update the callback_query handler to properly handle secure_link
   bot.on('callback_query', async (callbackQuery) => {
     const chatId = callbackQuery.message.chat.id;
     const action = callbackQuery.data;
 
+    // First, answer the callback query to remove loading state
+    await bot.answerCallbackQuery(callbackQuery.id);
+
+    // Handle new inline button actions
+    switch (action) {
+      case 'send_message':
+        if (chatId.toString() === process.env.BOT_OWNER_ID) {
+          adminState[chatId] = { step: 'waiting_message' };
+          await bot.sendMessage(chatId, 'Please send the message you want to broadcast to all users.');
+        } else {
+          await bot.sendMessage(chatId, 'Sorry, this command is only available to the bot owner.');
+        }
+        break;
+      case 'secure_link':
+        if (chatId.toString() === process.env.BOT_OWNER_ID) {
+          adminState[chatId] = { step: 'waiting_link' };
+          await bot.sendMessage(chatId, "Please send me the link you want to secure.");
+        } else {
+          await bot.sendMessage(chatId, 'Sorry, this command is only available to the bot owner.');
+        }
+        break;
+    }
+
+    // Handle existing broadcast actions
     if (!adminState[chatId]) return;
 
     switch (action) {
