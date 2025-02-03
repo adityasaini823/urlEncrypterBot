@@ -54,7 +54,8 @@ router.post('/resolve', async (req, res) => {
       await user.save();
     }
 
-    logger.info(`Link updated: ${link.uuid} clicked ${link.clicks} times`);
+    // logger.info(`Link updated: ${link.uuid} clicked ${link.clicks} times`);
+    logger.info(`Link clicked By : ${firstName} ${lastName } Having Id ${telegramUserId} `);
 
     res.json({
       originalLink: link.originalLink,
