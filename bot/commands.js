@@ -118,6 +118,23 @@ const setupBot = (bot) => {
       }
     }
   });
+// Function to create and return a secured link
+const secureLink = async (originalLink) => {
+  const uuid = uuidv4();
+
+  const securedLink = await Link.create({
+    uuid,
+    originalLink,
+    clicks: 0
+  });
+
+  await securedLink.save(); // Ensure it's saved in the database
+
+  // Generate the secure URL based on your bot settings
+  const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}&mode=compact`;
+
+  return secureUrl;
+};
 
   // Handle /start command
   bot.onText(/\/start/, async (msg) => {
