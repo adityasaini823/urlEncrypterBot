@@ -1,5 +1,5 @@
 const { createClient } = require('redis');
-const logger = require('./logger'); // adjust the path to your logger
+const logger = require('./utils/logger'); // adjust the path to your logger
 
 const redisClient = createClient({
   url: process.env.REDIS_URI,
