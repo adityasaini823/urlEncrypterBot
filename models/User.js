@@ -16,13 +16,8 @@ const userSchema = new mongoose.Schema({
   username: {
     type: String
   },
-  // Array of references to Link documents.
-  links: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Link'
-  }]
 });
-
+userSchema.index({telegramUserId:1});
 const User = mongoose.model('User', userSchema);
 
 module.exports = User;
