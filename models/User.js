@@ -17,7 +17,7 @@ const userSchema = new mongoose.Schema({
     type: String
   },
 });
-userSchema.index({telegramUserId:1});
+
 const User = mongoose.model('User', userSchema);
 
 module.exports = User;
