@@ -1,23 +1,24 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const Link = require('../models/Link');
-const User = require('../models/User');
-const logger = require('../utils/logger');
-
-router.post('/resolve', async (req, res) => {
+const Link = require("../models/Link");
+const User = require("../models/User");
+const logger = require("../utils/logger");
+const redisClient = require("../redisClient");
+router.post("/resolve", async (req, res) => {
   try {
     // Destructure and rename fields as needed.
-    const { 
-      uuid, 
-      id: telegramUserId, 
-      first_name: firstName, 
-      last_name: lastName, 
-      username 
+    const {
+      uuid,
+      id: telegramUserId,
+      first_name: firstName,
+      last_name: lastName,
+      username,
     } = req.body;
 
     if (!uuid) {
-      return res.status(400).json({ error: 'UUID parameter required' });
+      return res.status(400).json({ error: "UUID parameter required" });
     }
+
     // Find the user by telegramUserId or create a new one.
     let user = await User.findOne({ telegramUserId });
     if (!user) {
@@ -26,26 +27,45 @@ router.post('/resolve', async (req, res) => {
         firstName,
         lastName,
         username,
+        links: []
       });
       await user.save();
-      logger.info(`Created new user: ${user._id} ${user.username}`);
+      logger.info(`Created new user: ${user._id} ${user.firstName}`);
     }
-  // Find the link by uuid .
-    const link = await Link.findOne({ uuid });  
+    const cachedResponse = await redisClient.get(`link:${uuid}`);
+    if (cachedResponse) {
+      logger.info(`Cache hit for uuid: ${uuid}`);
+      return res.json(JSON.parse(cachedResponse));
+    }
+
+    // Find the link by uuid .
+    const link = await Link.findOne({ uuid });
 
     if (!link) {
-      return res.status(404).json({ error: 'Link not found' });
+      return res.status(404).json({ error: "Link not found" });
     }
+    const responseData = {
+      originalLink: link.originalLink,
+    };
 
     // logger.info(`Link updated: ${link.uuid}  times`);
-    logger.info(`Link clicked By : ${firstName} ${lastName } Having Id ${telegramUserId} `);
-
-    res.json({
-      originalLink: link.originalLink,
-    });
+    logger.info(
+      `Link clicked By : ${firstName} ${lastName} Having Id ${telegramUserId} `
+    );
+    // Cache the response. Set an expiration time (e.g., 1 hour = 3600 seconds)
+    try {
+      await redisClient.setEx(
+        `link:${uuid}`,
+        3600,
+        JSON.stringify(responseData)
+      );
+    } catch (cacheError) {
+      logger.error(`Redis cache error: ${cacheError.message}`);
+    }
+    res.json(responseData);
   } catch (error) {
     logger.error(`API Error: ${error.message}`);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
