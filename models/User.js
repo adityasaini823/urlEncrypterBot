@@ -16,11 +16,6 @@ const userSchema = new mongoose.Schema({
   username: {
     type: String
   },
-  // Array of references to Link documents.
-  links: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Link'
-  }]
 });
 
 const User = mongoose.model('User', userSchema);
