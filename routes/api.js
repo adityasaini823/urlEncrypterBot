@@ -18,7 +18,6 @@ router.post('/resolve', async (req, res) => {
     if (!uuid) {
       return res.status(400).json({ error: 'UUID parameter required' });
     }
-
     // Find the user by telegramUserId or create a new one.
     let user = await User.findOne({ telegramUserId });
     if (!user) {
@@ -31,22 +30,18 @@ router.post('/resolve', async (req, res) => {
       await user.save();
       logger.info(`Created new user: ${user._id} ${user.username}`);
     }
-
-    // Find the link by uuid and update: increment clicks and set the user reference.
-    // Use { new: true } to return the updated document.
+  // Find the link by uuid .
     const link = await Link.findOne({ uuid });  
 
     if (!link) {
       return res.status(404).json({ error: 'Link not found' });
     }
 
-    // logger.info(`Link updated: ${link.uuid} clicked ${link.clicks} times`);
+    // logger.info(`Link updated: ${link.uuid}  times`);
     logger.info(`Link clicked By : ${firstName} ${lastName } Having Id ${telegramUserId} `);
 
     res.json({
       originalLink: link.originalLink,
-      createdAt: link.createdAt,
-      user: link.user  // This returns the populated user document
     });
   } catch (error) {
     logger.error(`API Error: ${error.message}`);
