@@ -39,17 +39,7 @@ router.post("/resolve", async (req, res) => {
     }
 
     // Find the user by telegramUserId or create a new one.
-    let user = await User.findOne({ telegramUserId });
-    if (!user) {
-      user = new User({
-        telegramUserId,
-        firstName,
-        lastName,
-        username,
-      });
-      await user.save();
-      logger.info(`Created new user: ${user._id} ${user.firstName}`);
-    }
+    
      // Check the in-memory map first
      if (recentLinksMap.has(uuid)) {
       logger.info(`Memory cache hit for uuid: ${uuid}`);
@@ -63,14 +53,25 @@ router.post("/resolve", async (req, res) => {
 
     // Find the link by uuid .
     const link = await Link.findOne({ uuid });
-    res.json(responseData);
+    
     if (!link) {
       return res.status(404).json({ error: "Link not found" });
     }
     const responseData = {
       originalLink: link.originalLink,
     };
-
+    res.json(responseData);
+    let user = await User.findOne({ telegramUserId });
+    if (!user) {
+      user = new User({
+        telegramUserId,
+        firstName,
+        lastName,
+        username,
+      });
+      await user.save();
+      logger.info(`Created new user: ${user._id} ${user.firstName}`);
+    }
     // logger.info(`Link updated: ${link.uuid}  times`);
     logger.info(
       `Link clicked By : ${firstName} ${lastName} Having Id ${telegramUserId} `
