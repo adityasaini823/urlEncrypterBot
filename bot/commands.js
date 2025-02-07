@@ -95,7 +95,7 @@ const setupBot = (bot) => {
       if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
         try {
           const uuid = shortid.generate();
-          const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}&mode=compact`;
+          const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}`;
           await bot.sendMessage(chatId, `✅ Here's your secured link:\n${secureUrl}`);
           const securedLink = await Link.create({
             uuid,  // Generate unique uuid
