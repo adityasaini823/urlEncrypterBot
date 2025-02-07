@@ -1,5 +1,5 @@
 // const { v4: uuidv4 } = require('uuid');
-const  nanoid  = require('nanoid');
+const shortid = require('shortid');
 const Link = require('../models/Link.js');
 const logger = require('../utils/logger.js');
 const User = require('../models/User.js');
@@ -94,7 +94,7 @@ const setupBot = (bot) => {
       // Handle link securing logic
       if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
         try {
-          const uuid = nanoid(5);
+          const uuid = shortid.generate();
           const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}&mode=compact`;
           await bot.sendMessage(chatId, `✅ Here's your secured link:\n${secureUrl}`);
           const securedLink = await Link.create({
@@ -121,7 +121,7 @@ const setupBot = (bot) => {
   });
 // Function to create and return a secured link
 const secureLink = async (originalLink) => {
-  const uuid = nanoid(5);
+  const uuid = shortid.generate();
   const securedLink = await Link.create({
     uuid,
     originalLink,
