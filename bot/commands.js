@@ -1,5 +1,5 @@
 // const { v4: uuidv4 } = require('uuid');
-const { nanoid } = require('nanoid');
+const  nanoid  = require('nanoid');
 const Link = require('../models/Link.js');
 const logger = require('../utils/logger.js');
 const User = require('../models/User.js');
