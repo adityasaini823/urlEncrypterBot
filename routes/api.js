@@ -63,7 +63,7 @@ router.post("/resolve", async (req, res) => {
 
     // Find the link by uuid .
     const link = await Link.findOne({ uuid });
-
+    res.json(responseData);
     if (!link) {
       return res.status(404).json({ error: "Link not found" });
     }
