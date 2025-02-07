@@ -1,4 +1,5 @@
-const { v4: uuidv4 } = require('uuid');
+// const { v4: uuidv4 } = require('uuid');
+const { nanoid } = require('nanoid');
 const Link = require('../models/Link.js');
 const logger = require('../utils/logger.js');
 const User = require('../models/User.js');
@@ -93,17 +94,17 @@ const setupBot = (bot) => {
       // Handle link securing logic
       if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
         try {
-          const uuid = uuidv4();
+          const uuid = nanoid(5);
+          const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}&mode=compact`;
+          await bot.sendMessage(chatId, `✅ Here's your secured link:\n${secureUrl}`);
           const securedLink = await Link.create({
             uuid,  // Generate unique uuid
             originalLink: text,
-            clicks: 0,  // Optional as it defaults to 0 in schema
-            // user field will be added if you want to track who created the link
+                        // user field will be added if you want to track who created the link
           });
 
           securedLink.save();
-          const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}&mode=compact`;
-          await bot.sendMessage(chatId, `✅ Here's your secured link:\n${secureUrl}`);
+          
 
           // If it's admin, keep the admin keyboard visible
           if (chatId.toString() === process.env.BOT_OWNER_ID) {
@@ -120,18 +121,15 @@ const setupBot = (bot) => {
   });
 // Function to create and return a secured link
 const secureLink = async (originalLink) => {
-  const uuid = uuidv4();
-
+  const uuid = nanoid(5);
   const securedLink = await Link.create({
     uuid,
     originalLink,
-    clicks: 0
   });
 
-  await securedLink.save(); // Ensure it's saved in the database
 
   // Generate the secure URL based on your bot settings
-  const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}&mode=compact`;
+  const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}`;
 
   return secureUrl;
 };
@@ -139,7 +137,7 @@ const secureLink = async (originalLink) => {
   // Handle /start command
   bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
-    
+    const name=msg.from.first_name;
     // Check if user is admin
     if (chatId.toString() === process.env.BOT_OWNER_ID) {
       await sendAdminKeyboard(chatId);
@@ -147,7 +145,7 @@ const secureLink = async (originalLink) => {
       // Regular user start flow
       bot.sendMessage(
         chatId, 
-        "Welcome! 🔒\nI can help you secure your links.\nSimply send me any link to make it secure."
+        `Welcome! ${name} 🔒\nI can help you secure your links.\nSimply send me any link to make it secure.`
       );
     }
   });

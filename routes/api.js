@@ -4,6 +4,25 @@ const Link = require("../models/Link");
 const User = require("../models/User");
 const logger = require("../utils/logger");
 const redisClient = require("../redisClient");
+// Map to store the 50 most recent entries
+const recentLinksMap = new Map();
+
+// Preload 50 entries on startup
+async function loadRecentLinks() {
+  try {
+    const links = await Link.find().sort({ createdAt: -1 }).limit(20);
+    recentLinksMap.clear();
+    links.forEach(link => recentLinksMap.set(link.uuid, link));
+    logger.info("Preloaded recent links into memory.");
+  } catch (error) {
+    logger.error(`Error loading recent links: ${error.message}`);
+  }
+}
+
+// Refresh the map every 1 day
+setInterval(loadRecentLinks, 24 * 60 * 60 * 1000); // 1 day in milliseconds
+loadRecentLinks(); // Initial load on startup
+
 router.post("/resolve", async (req, res) => {
   try {
     // Destructure and rename fields as needed.
@@ -27,10 +46,14 @@ router.post("/resolve", async (req, res) => {
         firstName,
         lastName,
         username,
-        links: []
       });
       await user.save();
       logger.info(`Created new user: ${user._id} ${user.firstName}`);
+    }
+     // Check the in-memory map first
+     if (recentLinksMap.has(uuid)) {
+      logger.info(`Memory cache hit for uuid: ${uuid}`);
+      return res.json({ originalLink: recentLinksMap.get(uuid).originalLink });
     }
     const cachedResponse = await redisClient.get(`link:${uuid}`);
     if (cachedResponse) {
