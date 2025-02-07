@@ -4,7 +4,6 @@ const Link = require("../models/Link");
 const User = require("../models/User");
 const logger = require("../utils/logger");
 const redisClient = require("../redisClient");
-// Map to store the 50 most recent entries
 const recentLinksMap = new Map();
 
 // Preload 50 entries on startup
@@ -20,7 +19,7 @@ async function loadRecentLinks() {
 }
 
 // Refresh the map every 1 day
-setInterval(loadRecentLinks, 24 * 60 * 60 * 1000); // 1 day in milliseconds
+setInterval(loadRecentLinks, 60 * 60 * 1000); // 1 hour in milliseconds
 loadRecentLinks(); // Initial load on startup
 
 router.post("/resolve", async (req, res) => {
@@ -56,6 +55,9 @@ router.post("/resolve", async (req, res) => {
     
     if (!link) {
       return res.status(404).json({ error: "Link not found" });
+    }else{
+      recentLinksMap.set(uuid, link.originalLink);
+      logger.info("setted link in map");
     }
     const responseData = {
       originalLink: link.originalLink,
