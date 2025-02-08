@@ -201,7 +201,8 @@ const secureLink = async (originalLink) => {
           const users = await User.find({ telegramUserId: { $exists: true } });
           let successCount = 0;
           let failCount = 0;
-
+          let botBlockedByUsers=0;
+          let deletedAccounts=0;
           // Process one message at a time with delay
           const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -236,6 +237,11 @@ const secureLink = async (originalLink) => {
               }
 
             } catch (error) {
+              if (error.response && error.response.statusCode === 403) {
+                botBlockedByUsers++;
+              } else if (error.response && error.response.statusCode === 404) {
+                deletedAccounts++;
+              }
               logger.error(`Failed to send message to user ${users[i].telegramUserId}: ${error.message}`);
               failCount++;
               // Add extra delay after error
@@ -245,7 +251,7 @@ const secureLink = async (originalLink) => {
 
           await bot.sendMessage(
             chatId,
-            `Broadcast completed!\nTotal messages sent: ${users.length}\nSuccessful: ${successCount}\nFailed: ${failCount}`
+            `Broadcast completed!\nTotal messages sent: ${users.length}\nSuccessful: ${successCount}\n Total Failed: ${failCount}\nBot Blocked: ${botBlockedByUsers}\nDeleted Accounts: ${deletedAccounts}`
           );
           
           // Show admin keyboard again after broadcast
