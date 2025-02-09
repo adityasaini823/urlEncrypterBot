@@ -254,7 +254,7 @@ const secureLink = async (originalLink) => {
 
           await bot.sendMessage(
             chatId,
-            `Broadcast completed!\nTotal messages sent: ${users.length}\nSuccessful: ${successCount}\n Total Failed: ${failCount}\nBot Blocked: ${botBlockedByUsers}\nDeleted Accounts: ${deletedAccounts}}\nChat Not found with Bot: ${nonSubscribers}`
+            `Broadcast completed!\nTotal messages sent: ${users.length}\nSuccessful: ${successCount}\n Total Failed: ${failCount}\nBot Blocked: ${botBlockedByUsers}\nDeleted Accounts: ${deletedAccounts}\nChat Not found with Bot: ${nonSubscribers}`
           );
           
           // Show admin keyboard again after broadcast
