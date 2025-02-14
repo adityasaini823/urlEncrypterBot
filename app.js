@@ -16,7 +16,11 @@ mongoose.connect(process.env.MONGODB_URI)
 
 // Middleware
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+  origin: "*",
+  methods: ["POST"],
+  maxAge: 86400 // Cache preflight for 24 hours
+}));
 app.use(express.static('public'));
 
 // Routes

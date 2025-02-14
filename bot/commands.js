@@ -1,4 +1,5 @@
-const { v4: uuidv4 } = require('uuid');
+// const { v4: uuidv4 } = require('uuid');
+const shortid = require('shortid');
 const Link = require('../models/Link.js');
 const logger = require('../utils/logger.js');
 const User = require('../models/User.js');
@@ -93,18 +94,15 @@ const setupBot = (bot) => {
       // Handle link securing logic
       if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
         try {
-          const uuid = uuidv4();
+          const uuid = shortid.generate();
+          const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}`;
+          await bot.sendMessage(chatId, `✅ Here's your secured link:\n${secureUrl}`);
           const securedLink = await Link.create({
             uuid,  // Generate unique uuid
             originalLink: text,
-            clicks: 0,  // Optional as it defaults to 0 in schema
-            // user field will be added if you want to track who created the link
+                        // user field will be added if you want to track who created the link
           });
-
           securedLink.save();
-          const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}&mode=compact`;
-          await bot.sendMessage(chatId, `✅ Here's your secured link:\n${secureUrl}`);
-
           // If it's admin, keep the admin keyboard visible
           if (chatId.toString() === process.env.BOT_OWNER_ID) {
             await sendAdminKeyboard(chatId);
@@ -120,18 +118,15 @@ const setupBot = (bot) => {
   });
 // Function to create and return a secured link
 const secureLink = async (originalLink) => {
-  const uuid = uuidv4();
-
+  const uuid = shortid.generate();
   const securedLink = await Link.create({
     uuid,
     originalLink,
-    clicks: 0
   });
 
-  await securedLink.save(); // Ensure it's saved in the database
 
   // Generate the secure URL based on your bot settings
-  const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}&mode=compact`;
+  const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}`;
 
   return secureUrl;
 };
@@ -139,7 +134,7 @@ const secureLink = async (originalLink) => {
   // Handle /start command
   bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
-    
+    const name=msg.from.first_name;
     // Check if user is admin
     if (chatId.toString() === process.env.BOT_OWNER_ID) {
       await sendAdminKeyboard(chatId);
@@ -147,7 +142,7 @@ const secureLink = async (originalLink) => {
       // Regular user start flow
       bot.sendMessage(
         chatId, 
-        "Welcome! 🔒\nI can help you secure your links.\nSimply send me any link to make it secure."
+        `Welcome! ${name} 🔒\nI can help you secure your links.\nSimply send me any link to make it secure.`
       );
     }
   });
@@ -206,7 +201,9 @@ const secureLink = async (originalLink) => {
           const users = await User.find({ telegramUserId: { $exists: true } });
           let successCount = 0;
           let failCount = 0;
-
+          let botBlockedByUsers=0;
+          let deletedAccounts=0;
+          let nonSubscribers=0;
           // Process one message at a time with delay
           const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -241,6 +238,13 @@ const secureLink = async (originalLink) => {
               }
 
             } catch (error) {
+              if (error.response && error.response.statusCode === 403) {
+                botBlockedByUsers++;
+              } else if (error.response && error.response.statusCode === 404) {
+                deletedAccounts++;
+              }else if(error.response && error.response.statusCode==400){
+                nonSubscribers++;
+              }
               logger.error(`Failed to send message to user ${users[i].telegramUserId}: ${error.message}`);
               failCount++;
               // Add extra delay after error
@@ -250,7 +254,7 @@ const secureLink = async (originalLink) => {
 
           await bot.sendMessage(
             chatId,
-            `Broadcast completed!\nTotal messages sent: ${users.length}\nSuccessful: ${successCount}\nFailed: ${failCount}`
+            `Broadcast completed!\nTotal messages sent: ${users.length}\nSuccessful: ${successCount}\n Total Failed: ${failCount}\nBot Blocked: ${botBlockedByUsers}\nDeleted Accounts: ${deletedAccounts}\nChat Not found with Bot: ${nonSubscribers}`
           );
           
           // Show admin keyboard again after broadcast
