@@ -1,333 +1,462 @@
-// const { v4: uuidv4 } = require('uuid');
+// Import required packages
 const shortid = require('shortid');
 const Link = require('../models/Link.js');
 const logger = require('../utils/logger.js');
 const User = require('../models/User.js');
 
 const setupBot = (bot) => {
-  // Add command list setup
-  const commands = [
-    { command: 'start', description: 'Start the bot' },
-    { command: 'sendmessage', description: 'Broadcast message to all users (Admin only)' }
-    // Add other commands here
-  ];
+  const adminChatId = process.env.BOT_OWNER_ID;
 
-  // Set up commands for menu button
-  bot.setMyCommands(commands).then(() => {
-    logger.info('Bot commands menu updated successfully');
-  }).catch((error) => {
-    logger.error('Error setting bot commands:', error);
-  });
+  /*** Command Setup ***/
+  const setAdminCommands = async () => {
+    try {
+      await bot.setMyCommands(
+        [
+          { command: 'start', description: 'Start bot' },
+          { command: 'send_message', description: 'Broadcast (admin)' },
+          { command: 'database_management', description: 'DB tools (admin)' }
+        ],
+        { scope: { type: 'chat', chat_id: Number(adminChatId) } }
+      );
+      logger.info('Admin commands set successfully');
+    } catch (error) {
+      logger.error('Failed to set admin commands:', error);
+    }
+  };
 
-  // Replace sendAdminKeyboard function with new inline version
-  const sendAdminKeyboard = async (chatId) => {
-    const adminInlineKeyboard = {
+  const setDefaultCommands = async () => {
+    try {
+      await bot.setMyCommands(
+        [{ command: 'start', description: 'Start bot' }],
+        { scope: { type: 'default' } }
+      );
+      logger.info('Default commands set successfully');
+    } catch (error) {
+      logger.error('Failed to set default commands:', error);
+    }
+  };
+
+  // Initialize commands
+  setAdminCommands();
+  setDefaultCommands();
+
+  /*** Admin State ***/
+  // This object tracks the current admin action by chatId.
+  const adminStates = {};
+
+  /*** Utility Functions ***/
+  const isAdmin = (chatId) => chatId.toString() === adminChatId;
+
+  // Delay helper to prevent hitting rate limits
+  const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+  /*** UI Helper Functions ***/
+  const showAdminMenu = async (chatId) => {
+    const menuButtons = {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '📢 Send Message', callback_data: 'send_message' }],
-          [{ text: '🔒 Secure a Link', callback_data: 'secure_link' }]
+          [{ text: '📢 Send Message to All Users', callback_data: 'send_message' }],
+          [{ text: '🔒 Create Secure Link', callback_data: 'secure_link' }],
+          [{ text: '📊 Database Management', callback_data: 'db_management' }]
         ]
       }
     };
 
     try {
       await bot.sendMessage(
-        chatId, 
-        'Admin Dashboard\n\nYou can:\n- Broadcast messages to users\n- Secure any link by pasting it here', 
-        adminInlineKeyboard
+        chatId,
+        '👋 Welcome to Admin Dashboard!\n\nWhat would you like to do?\n- Send a message to all users\n- Create a secure link',
+        menuButtons
       );
     } catch (error) {
-      logger.error('Error sending admin keyboard:', error);
+      logger.error('Failed to show admin menu:', error);
+      await bot.sendMessage(chatId, '❌ Sorry, there was an error showing the admin menu. Please try again.');
     }
   };
 
-  // Track admin state for message broadcast
-  let adminState = {};
+  const showDatabaseMenu = async (chatId) => {
+    const dbMenuButtons = {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🚫 View Blocked Users', callback_data: 'view_blocked' }],
+          [{ text: '💤 View Inactive Users', callback_data: 'view_inactive' }],
+          [{ text: '🗑️ Clean Database', callback_data: 'clean_db' }],
+          [{ text: '⬅️ Back to Main Menu', callback_data: 'main_menu' }]
+        ]
+      }
+    };
 
-  // Remove duplicate message handler and keep only one
+    try {
+      await bot.sendMessage(chatId, '📊 Database Management\n\nSelect an action:', dbMenuButtons);
+    } catch (error) {
+      logger.error('Failed to show database menu:', error);
+    }
+  };
+
+  /*** Core Functions ***/
+  // Check a user's bot status
+  const checkBotStatus = async (userId) => {
+    try {
+      await bot.sendChatAction(userId, 'typing');
+      return 'active';
+    } catch (error) {
+      if (error.response) {
+        if (error.response.statusCode === 403) return 'blocked';
+        if (error.response.statusCode === 404) return 'deleted';
+      }
+      return 'error';
+    }
+  };
+
+  // Create a secure link from an original link
+  const createSecureLink = async (originalLink) => {
+    try {
+      const uniqueId = shortid.generate();
+      await Link.create({ uuid: uniqueId, originalLink });
+      return `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uniqueId}`;
+    } catch (error) {
+      logger.error('Error creating secure link:', error);
+      throw error;
+    }
+  };
+// Message deletion delay in milliseconds (e.g., 60000 ms = 60 seconds)
+// Function to schedule message deletion
+function messageDeletion(userId, messageId) {
+  const deletionDelay = 60 * 60 * 1000; // 1 hour in milliseconds
+  setTimeout(async () => {
+    try {
+      await bot.deleteMessage(userId, messageId);
+      console.log(`Deleted message ${messageId} for user ${userId}`);
+    } catch (delError) {
+      logger.error(
+        `Failed to delete message ${messageId} for user ${userId}:`,
+        delError.message
+      );
+    }
+  }, deletionDelay);
+}
+
+/*** Broadcast Functionality ***/
+const handleBroadcast = async (chatId) => {
+  if (!adminStates[chatId] || !adminStates[chatId].messageText) {
+    await bot.sendMessage(chatId, '❌ Sorry, no message found to broadcast.');
+    return;
+  }
+  await bot.sendMessage(chatId, '📣 Starting broadcast...');
+  try {
+    const users = await User.find({ telegramUserId: { $exists: true } });
+    const stats = {
+      total: users.length,
+      sent: 0,
+      failed: 0,
+      blocked: 0,
+      deleted: 0,
+      notFound: 0
+    };
+
+    for (let i = 0; i < users.length; i++) {
+      try {
+        // Send the broadcast message and capture the sent message's details
+        const sentMessage = await bot.sendMessage(
+          users[i].telegramUserId,
+          adminStates[chatId].messageText,
+          { disable_web_page_preview: true }
+        );
+        stats.sent++;
+
+        // Schedule deletion of the sent message after the specified delay
+        messageDeletion(users[i].telegramUserId, sentMessage.message_id);
+
+        // Delay to avoid rate limits
+        if ((i + 1) % 30 === 0) {
+          await delay(2000);
+        } else {
+          await delay(100);
+        }
+
+        // Show progress every 50 messages
+        if ((i + 1) % 50 === 0) {
+          await bot.sendMessage(
+            chatId,
+            `📊 Progress: ${i + 1}/${stats.total}\n✅ Sent: ${stats.sent}\n❌ Failed: ${stats.failed}`
+          );
+        }
+      } catch (error) {
+        if (error.response) {
+          if (error.response.statusCode === 403) stats.blocked++;
+          else if (error.response.statusCode === 404) stats.deleted++;
+          else if (error.response.statusCode === 400) stats.notFound++;
+        }
+        stats.failed++;
+        logger.error(`Failed to send to user ${users[i].telegramUserId}:`, error.message);
+      }
+    }
+
+    // Final broadcast result
+    await bot.sendMessage(
+      chatId,
+      `📊 Broadcast Results:\n\n` +
+        `📧 Total Users: ${stats.total}\n` +
+        `✅ Successfully Sent: ${stats.sent}\n` +
+        `❌ Failed: ${stats.failed}\n` +
+        `🚫 Bot Blocked: ${stats.blocked}\n` +
+        `🗑️ Deleted Accounts: ${stats.deleted}\n` +
+        `❓ Not Found: ${stats.notFound}`
+    );
+  } catch (error) {
+    logger.error('Broadcast error:', error);
+    await bot.sendMessage(chatId, '❌ Error occurred while broadcasting. Please check logs.');
+  }
+  delete adminStates[chatId];
+  await showAdminMenu(chatId);
+};
+
+
+  /*** Database Cleanup Handlers ***/
+  const handleViewBlocked = async (chatId) => {
+    try {
+      await bot.sendMessage(chatId, '🔍 Checking blocked users...');
+      const users = await User.find({});
+      let blockedCount = 0;
+
+      for (const user of users) {
+        const status = await checkBotStatus(user.telegramUserId);
+        if (status === 'blocked') {
+          blockedCount++;
+        }
+      }
+
+      await bot.sendMessage(
+        chatId,
+        `📊 Block Status:\n\n` +
+          `Total Users: ${users.length}\n` +
+          `Blocked Bot: ${blockedCount}\n` +
+          `Active Users: ${users.length - blockedCount}`
+      );
+    } catch (error) {
+      logger.error('Error checking blocked users:', error);
+      await bot.sendMessage(chatId, '❌ Error checking blocked users');
+    }
+  };
+
+  const handleViewInactive = async (chatId) => {
+    try {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const inactiveUsers = await User.find({
+        lastInteraction: { $lt: thirtyDaysAgo }
+      });
+
+      if (inactiveUsers.length > 0) {
+        let message = '💤 Users inactive for 30+ days:\n\n';
+        inactiveUsers.forEach(user => {
+          message += `ID: ${user.telegramUserId}\n`;
+          message += `Name: ${user.firstName || 'N/A'} ${user.lastName || ''}\n`;
+          message += `Last Active: ${new Date(user.lastInteraction).toLocaleDateString()}\n\n`;
+        });
+        await bot.sendMessage(chatId, message);
+      } else {
+        await bot.sendMessage(chatId, '✅ No inactive users found!');
+      }
+    } catch (error) {
+      logger.error('Error checking inactive users:', error);
+      await bot.sendMessage(chatId, '❌ Error checking inactive users');
+    }
+  };
+
+  const clearDeletedUsers=async(chatId) => {
+    try {
+      // const users = await User.find({});
+      // for (const user of users) {
+      //   const status = await checkBotStatus(user.telegramUserId);
+      //   if (status === 'blocked') {
+      //     blockedCount++;
+      //   }
+      // }
+      bot.sendMessage(chatId,"working on it");
+    }catch{
+      logger.error('Error clearing deleted users:', error);
+    }
+  }
+  const showCleanupOptions = async (chatId) => {
+    const cleanupOptions = {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '🗑️ Remove Deleted Accounts', callback_data: 'remove_deleted' },
+          ],
+          [{ text: '⬅️ Back', callback_data: 'db_management' }]
+        ]
+      }
+    };
+
+    await bot.sendMessage(
+      chatId,
+      '⚠️ Database Cleanup Options\n\nChoose what to clean:',
+      cleanupOptions
+    );
+  };
+
+
+  /*** Bot Event Handlers ***/
+  // Handle incoming messages
   bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
-    const text = msg.text;
+    const messageText = msg.text;
 
-    // Handle commands
-    if (text && text.startsWith('/')) {
-      // Let the command handlers handle it
-      return;
-    }
+    // Ignore commands and empty messages
+    if (!messageText || messageText.startsWith('/')) return;
 
-    // Handle broadcast state if active
-    if (adminState[chatId]) {
-      if (adminState[chatId].step === 'waiting_message') {
-        adminState[chatId].messageToSend = msg.text;
-        adminState[chatId].step = 'preview';
-        
-        const keyboard = {
-          inline_keyboard: [
-            [
-              { text: 'Confirm', callback_data: 'send_broadcast' },
-              { text: 'Back', callback_data: 'edit_broadcast' }
-            ]
-          ]
-        };
+    // If the admin is in the middle of an action
+    if (adminStates[chatId]) {
+      const currentState = adminStates[chatId];
 
-        bot.sendMessage(
-          chatId,
-          `Preview of your message:\n\n${msg.text}\n\nPlease confirm to send or go back to edit.`,
-          { reply_markup: keyboard }
-        );
-      } else if (adminState[chatId].step === 'waiting_link') {
-        if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
-          try {
-            const securedLink = await secureLink(text);
-            await bot.sendMessage(chatId, `Here's your secured link:\n${securedLink}`);
-            // Clear the state after successful link securing
-            delete adminState[chatId];
-          } catch (error) {
-            await bot.sendMessage(chatId, "Sorry, there was an error securing the link. Please try again.");
-            logger.error('Error securing link:', error);
+      switch (currentState.action) {
+        case 'typing_broadcast':
+          // Save message and show preview for broadcast
+          adminStates[chatId] = { action: 'previewing_broadcast', messageText };
+          await bot.sendMessage(
+            chatId,
+            `📝 Here's how your message will look:\n\n${messageText}\n\nWould you like to send it?`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    { text: '✅ Send', callback_data: 'send_broadcast' },
+                    { text: '✏️ Edit', callback_data: 'edit_broadcast' }
+                  ]
+                ]
+              }
+            }
+          );
+          break;
+        case 'creating_secure_link':
+          if (messageText.startsWith('http://') || messageText.startsWith('https://')) {
+            try {
+              const secureLink = await createSecureLink(messageText);
+              await bot.sendMessage(chatId, '✅ Here\'s your secure link:\n' + secureLink);
+              delete adminStates[chatId];
+              await showAdminMenu(chatId);
+            } catch (error) {
+              await bot.sendMessage(chatId, '❌ Sorry, couldn\'t create secure link. Please try again.');
+            }
+          } else {
+            await bot.sendMessage(chatId, '⚠️ Please send a valid link starting with http:// or https://');
           }
-        } else {
-          await bot.sendMessage(chatId, "Please send a valid link starting with http:// or https://");
-        }
+          break;
+        default:
+          break;
+      }
+    }
+    // Regular user sending a link
+    else if (messageText.startsWith('http://') || messageText.startsWith('https://')) {
+      try {
+        const secureLink = await createSecureLink(messageText);
+        await bot.sendMessage(chatId, '✅ Here\'s your secure link:\n' + secureLink);
+        // If the sender is admin, display the admin menu again
+        if (isAdmin(chatId)) await showAdminMenu(chatId);
+      } catch (error) {
+        await bot.sendMessage(chatId, '❌ Sorry, couldn\'t create secure link. Please try again.');
       }
     } else {
-      // Handle link securing logic
-      if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
-        try {
-          const uuid = shortid.generate();
-          const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}`;
-          await bot.sendMessage(chatId, `✅ Here's your secured link:\n${secureUrl}`);
-          const securedLink = await Link.create({
-            uuid,  // Generate unique uuid
-            originalLink: text,
-                        // user field will be added if you want to track who created the link
-          });
-          securedLink.save();
-          // If it's admin, keep the admin keyboard visible
-          if (chatId.toString() === process.env.BOT_OWNER_ID) {
-            await sendAdminKeyboard(chatId);
-          }
-        } catch (error) {
-          logger.error('Error securing link:', error);
-          await bot.sendMessage(chatId, 'Sorry, there was an error securing your link. Please try again.');
-        }
-      } else if (text && !text.startsWith('/')) {
-        bot.sendMessage(chatId, "Please send a valid link starting with http:// or https://");
-      }
+      await bot.sendMessage(chatId, '⚠️ Please send a valid link starting with http:// or https://');
     }
   });
-// Function to create and return a secured link
-const secureLink = async (originalLink) => {
-  const uuid = shortid.generate();
-  const securedLink = await Link.create({
-    uuid,
-    originalLink,
-  });
-
-
-  // Generate the secure URL based on your bot settings
-  const secureUrl = `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uuid}`;
-
-  return secureUrl;
-};
 
   // Handle /start command
   bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
-    const name=msg.from.first_name;
-    // Check if user is admin
-    if (chatId.toString() === process.env.BOT_OWNER_ID) {
-      await sendAdminKeyboard(chatId);
+    const userName = msg.from.first_name;
+
+    if (isAdmin(chatId)) {
+      await showAdminMenu(chatId);
     } else {
-      // Regular user start flow
-      bot.sendMessage(
-        chatId, 
-        `Welcome! ${name} 🔒\nI can help you secure your links.\nSimply send me any link to make it secure.`
+      await bot.sendMessage(
+        chatId,
+        `Welcome ${userName}! 👋\n\nI can help you create secure links.\nJust send me any link and I'll secure it for you!`
       );
     }
   });
 
-  // Handle /sendmessage command
+  // Handle /sendmessage command (admin only)
   bot.onText(/\/sendmessage/, async (msg) => {
     const chatId = msg.chat.id;
-    
-    // Check if the user is admin by comparing with BOT_OWNER_ID from environment variables
-    if (chatId.toString() !== process.env.BOT_OWNER_ID) {
-      bot.sendMessage(chatId, 'Sorry, this command is only available to the bot owner.'+chatId);
+    if (!isAdmin(chatId)) {
+      await bot.sendMessage(chatId, '⚠️ Sorry, this command is only for admins.');
       return;
     }
-    
-    adminState[chatId] = { step: 'waiting_message' };
-    bot.sendMessage(chatId, 'Please send the message you want to broadcast to all users.');
+    adminStates[chatId] = { action: 'typing_broadcast' };
+    await bot.sendMessage(chatId, '📝 Please type the message you want to send to all users:');
   });
 
-  // Update the callback_query handler to properly handle secure_link
-  bot.on('callback_query', async (callbackQuery) => {
-    const chatId = callbackQuery.message.chat.id;
-    const action = callbackQuery.data;
+  // Handle /database_management command (admin only)
+  bot.onText(/\/database_management/, async (msg) => {
+    const chatId = msg.chat.id;
+    if (!isAdmin(chatId)) {
+      await bot.sendMessage(chatId, '⚠️ Sorry, this command is only for admins.');
+      return;
+    }
+    adminStates[chatId] = { action: 'db_management' };
+    await showDatabaseMenu(chatId);
+  });
 
-    // First, answer the callback query to remove loading state
-    await bot.answerCallbackQuery(callbackQuery.id);
+  // Handle callback queries from inline buttons
+  bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
+    const action = query.data;
 
-    // Handle new inline button actions
+    // Always answer callback queries immediately
+    await bot.answerCallbackQuery(query.id);
+
+    if (!isAdmin(chatId)) {
+      await bot.sendMessage(chatId, '⚠️ Sorry, this feature is only for admins.');
+      return;
+    }
+
     switch (action) {
       case 'send_message':
-        if (chatId.toString() === process.env.BOT_OWNER_ID) {
-          adminState[chatId] = { step: 'waiting_message' };
-          await bot.sendMessage(chatId, 'Please send the message you want to broadcast to all users.');
-        } else {
-          await bot.sendMessage(chatId, 'Sorry, this command is only available to the bot owner.');
-        }
+        adminStates[chatId] = { action: 'typing_broadcast' };
+        await bot.sendMessage(chatId, '📝 Please type the message you want to send to all users:');
         break;
       case 'secure_link':
-        if (chatId.toString() === process.env.BOT_OWNER_ID) {
-          adminState[chatId] = { step: 'waiting_link' };
-          await bot.sendMessage(chatId, "Please send me the link you want to secure.");
-        } else {
-          await bot.sendMessage(chatId, 'Sorry, this command is only available to the bot owner.');
-        }
+        adminStates[chatId] = { action: 'creating_secure_link' };
+        await bot.sendMessage(chatId, '🔒 Please send the link you want to secure:');
         break;
-    }
-
-    // Handle existing broadcast actions
-    if (!adminState[chatId]) return;
-
-    switch (action) {
       case 'send_broadcast':
-        await bot.sendMessage(chatId, 'Starting broadcast...');
-        
-        try {
-          // Get all users from database
-          const users = await User.find({ telegramUserId: { $exists: true } });
-          let successCount = 0;
-          let failCount = 0;
-          let botBlockedByUsers=0;
-          let deletedAccounts=0;
-          let nonSubscribers=0;
-          // Process one message at a time with delay
-          const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-          for (let i = 0; i < users.length; i++) {
-            try {
-              await bot.sendMessage(
-                users[i].telegramUserId, 
-                adminState[chatId].messageToSend,
-                {
-                  disable_web_page_preview: true,
-                  disable_notification: true
-                }
-              );
-              successCount++;
-
-              // Add delay after each message
-              await delay(100); // 100ms delay between each message
-
-              // Send progress update every 50 messages
-              if ((i + 1) % 50 === 0 || i + 1 === users.length) {
-                await bot.sendMessage(
-                  chatId,
-                  `Progress: ${i + 1}/${users.length}\nSuccessful: ${successCount}\nFailed: ${failCount}`
-                );
-                // Add a longer delay after progress update
-                await delay(1000);
-              }
-
-              // Add a longer delay every 30 messages to prevent rate limiting
-              if ((i + 1) % 30 === 0) {
-                await delay(2000);
-              }
-
-            } catch (error) {
-              if (error.response && error.response.statusCode === 403) {
-                botBlockedByUsers++;
-              } else if (error.response && error.response.statusCode === 404) {
-                deletedAccounts++;
-              }else if(error.response && error.response.statusCode==400){
-                nonSubscribers++;
-              }
-              logger.error(`Failed to send message to user ${users[i].telegramUserId}: ${error.message}`);
-              failCount++;
-              // Add extra delay after error
-              await delay(1000);
-            }
-          }
-
-          await bot.sendMessage(
-            chatId,
-            `Broadcast completed!\nTotal messages sent: ${users.length}\nSuccessful: ${successCount}\n Total Failed: ${failCount}\nBot Blocked: ${botBlockedByUsers}\nDeleted Accounts: ${deletedAccounts}\nChat Not found with Bot: ${nonSubscribers}`
-          );
-          
-          // Show admin keyboard again after broadcast
-          await sendAdminKeyboard(chatId);
-        } catch (error) {
-          logger.error('Broadcast error:', error);
-          await bot.sendMessage(chatId, 'Error occurred while broadcasting messages. Please check logs.');
-          // Show admin keyboard even after error
-          await sendAdminKeyboard(chatId);
-        }
-        
-        delete adminState[chatId];
+        await handleBroadcast(chatId);
         break;
-
       case 'edit_broadcast':
-        adminState[chatId].step = 'waiting_message';
-        bot.sendMessage(chatId, 'Please send the new message.');
+        adminStates[chatId] = { action: 'typing_broadcast' };
+        await bot.sendMessage(chatId, '📝 Please type your new message:');
+        break;
+      case 'db_management':
+        await showDatabaseMenu(chatId);
+        break;
+      case 'main_menu':
+        await showAdminMenu(chatId);
+        break;
+      case 'view_blocked':
+        await handleViewBlocked(chatId);
+        break;
+      case 'view_inactive':
+        await handleViewInactive(chatId);
+        break;
+      case 'clean_db':
+        await showCleanupOptions(chatId);
+        break;
+      case 'remove_deleted':
+        await clearDeletedUsers(chatId);
+        break;
+      default:
         break;
     }
   });
 
-  // Add error handler for polling errors
-  bot.on("polling_error", (error) => {
-    logger.error('Polling error:', error);
-    // Restart polling after a delay if needed
-    setTimeout(() => {
-      bot.stopPolling()
-        .then(() => bot.startPolling())
-        .catch(err => logger.error('Error restarting polling:', err));
-    }, 5000);
+  // Handle polling errors
+  bot.on('polling_error', (error) => {
+    logger.error('Bot polling error:', error);
   });
+};
 
-  // Set up command menu with proper error handling
-  const setupCommands = async () => {
-    try {
-      // Basic commands for regular users
-      const basicCommands = [
-        { command: 'start', description: 'Start securing your links' }
-      ];
-
-      // Try setting basic commands
-      await bot.setMyCommands(basicCommands)
-        .catch(error => {
-          logger.error('Error setting basic commands:', error);
-        });
-
-      // Set admin-specific commands
-      if (process.env.BOT_OWNER_ID) {
-        const adminCommands = [
-          { command: 'start', description: 'Start the bot' },
-          { command: 'sendmessage', description: 'Broadcast message to all users' }
-        ];
-
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        await bot.setMyCommands(adminCommands, {
-          scope: {
-            type: 'chat',
-            chat_id: process.env.BOT_OWNER_ID
-          }
-        }).catch(error => {
-          logger.error('Error setting admin commands:', error);
-        });
-      }
-    } catch (error) {
-      logger.error('Error in setupCommands:', error);
-    }
-  };
-
-  // Call setupCommands with delay after bot starts
-  setTimeout(() => {
-    setupCommands();
-  }, 2000);
-}
-
-module.exports={setupBot};
+module.exports = { setupBot };
