@@ -8,26 +8,26 @@ const setupBot = (bot) => {
   const adminChatId = process.env.BOT_OWNER_ID;
 
   /*** Command Setup ***/
-  // const setAdminCommands = async () => {
-  //   try {
-  //     await bot.setMyCommands(
-  //       [
-  //         { command: 'start', description: 'Start bot' },
-  //         { command: 'send_message', description: 'Broadcast (admin)' },
-  //         { command: 'partial_broadcast', description: 'Partial Announcement (admin)' },
-  //         { command: 'database_management', description: 'DB tools (admin)' }
-  //       ],
-  //       { scope: { type: 'chat', chat_id: Number(adminChatId) } }
-  //     );
-  //     logger.info('Admin commands set successfully');
-  //   } catch (error) {
-  //     logger.error('Failed to set admin commands:', error.message);
-  //     if (error.response) {
-  //       logger.error('Response status:', error.response.statusCode);
-  //       logger.error('Response data:', error.response.body);
-  //     }
-  //   }
-  // };
+  const setAdminCommands = async () => {
+    try {
+      await bot.setMyCommands(
+        [
+          { command: 'start', description: 'Start bot' },
+          { command: 'send_message', description: 'Broadcast (admin)' },
+          { command: 'partial_broadcast', description: 'Partial Announcement (admin)' },
+          { command: 'database_management', description: 'DB tools (admin)' }
+        ],
+        { scope: { type: 'chat', chat_id: Number(adminChatId) } }
+      );
+      logger.info('Admin commands set successfully');
+    } catch (error) {
+      logger.error('Failed to set admin commands:', error.message);
+      if (error.response) {
+        logger.error('Response status:', error.response.statusCode);
+        logger.error('Response data:', error.response.body);
+      }
+    }
+  };
 
   const setDefaultCommands = async () => {
     try {
@@ -42,8 +42,8 @@ const setupBot = (bot) => {
   };
 
   // Initialize commands
-  // setAdminCommands();
-  // setDefaultCommands();
+  setAdminCommands();
+  setDefaultCommands();
 
   /*** Admin State ***/
   // This object tracks the current admin action by chatId.
@@ -131,11 +131,20 @@ const showPartialBroadcastMenu=async(chatId)=>{
   };
 
   // Create a secure link from an original link
-  const createSecureLink = async (originalLink) => {
+  const createSecureLink = async (originalLink,chatId,firstName,lastName,username) => {
     try {
       const uniqueId = shortid.generate();
-      await Link.create({ uuid: uniqueId, originalLink });
-      return `https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uniqueId}`;
+      const secureLink=`https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uniqueId}`;
+      await Link.create({
+        uuid: uniqueId,
+        originalLink,
+        secureLink,
+        createdBy: chatId,           // maps chatId to createdBy
+        createrFirstName: firstName, // maps firstName to createrFirstName
+        createrLastName: lastName,   // maps lastName to createrLastName
+        createrUserName: username    // maps username to createrUserName
+      });      
+      return secureLink;
     } catch (error) {
       logger.error('Error creating secure link:', error);
       throw error;
@@ -265,31 +274,6 @@ showPartialBroadcastMenu(chatId);
     }
   };
 
-  // const handleViewInactive = async (chatId) => {
-  //   try {
-  //     const thirtyDaysAgo = new Date();
-  //     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-  //     const inactiveUsers = await User.find({
-  //       lastInteraction: { $lt: thirtyDaysAgo }
-  //     });
-
-  //     if (inactiveUsers.length > 0) {
-  //       let message = '💤 Users inactive for 30+ days:\n\n';
-  //       inactiveUsers.forEach(user => {
-  //         message += `ID: ${user.telegramUserId}\n`;
-  //         message += `Name: ${user.firstName || 'N/A'} ${user.lastName || ''}\n`;
-  //         message += `Last Active: ${new Date(user.lastInteraction).toLocaleDateString()}\n\n`;
-  //       });
-  //       await bot.sendMessage(chatId, message);
-  //     } else {
-  //       await bot.sendMessage(chatId, '✅ No inactive users found!');
-  //     }
-  //   } catch (error) {
-  //     logger.error('Error checking inactive users:', error);
-  //     await bot.sendMessage(chatId, '❌ Error checking inactive users');
-  //   }
-  // };
 
   const clearDeletedUsers = async (chatId) => {
     try {
@@ -441,7 +425,10 @@ const evenIdsBroadcast = async (chatId) => {
   // Handle incoming messages
   bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
-    const messageText = msg.text;
+  const messageText = msg.text;
+  const firstName = msg.from.first_name;
+  const lastName = msg.from.last_name;
+  const username = msg.from.username;
 
     // Ignore commands and empty messages
     if (!messageText || messageText.startsWith('/')) return;
@@ -479,7 +466,7 @@ const evenIdsBroadcast = async (chatId) => {
         case 'creating_secure_link':
           if (messageText.startsWith('http://') || messageText.startsWith('https://')) {
             try {
-              const secureLink = await createSecureLink(messageText);
+              const secureLink = await createSecureLink(messageText,chatId,firstName,lastName,username);
               await bot.sendMessage(chatId, '✅ Here\'s your secure link:\n' + secureLink);
               delete adminStates[chatId];
               await showAdminMenu(chatId);
@@ -497,7 +484,7 @@ const evenIdsBroadcast = async (chatId) => {
     // Regular user sending a link
     else if (messageText.startsWith('http://') || messageText.startsWith('https://')) {
       try {
-        const secureLink = await createSecureLink(messageText);
+        const secureLink = await createSecureLink(messageText,chatId,firstName,lastName,username);
         await bot.sendMessage(chatId, '✅ Here\'s your secure link:\n' + secureLink);
         // If the sender is admin, display the admin menu again
         if (isAdmin(chatId)) await showAdminMenu(chatId);
