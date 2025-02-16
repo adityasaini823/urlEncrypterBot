@@ -13,7 +13,7 @@ const setupBot = (bot) => {
       await bot.setMyCommands(
         [
           { command: 'start', description: 'Start bot' },
-          { command: 'send_message', description: 'Broadcast (admin)' },
+          { command: 'sendmessage', description: 'Broadcast (admin)' },
           { command: 'partial_broadcast', description: 'Partial Announcement (admin)' },
           { command: 'database_management', description: 'DB tools (admin)' }
         ],
@@ -136,14 +136,15 @@ const showPartialBroadcastMenu=async(chatId)=>{
       const uniqueId = shortid.generate();
       const secureLink=`https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uniqueId}`;
       await Link.create({
-        uuid: uniqueId,
-        originalLink,
-        secureLink,
-        createdBy: chatId,           // maps chatId to createdBy
-        createrFirstName: firstName, // maps firstName to createrFirstName
-        createrLastName: lastName,   // maps lastName to createrLastName
-        createrUserName: username    // maps username to createrUserName
-      });      
+  uuid: uniqueId,
+  originalLink,
+  secureLink,
+  createdBy: chatId,           // maps chatId to createdBy
+  createrFirstName: firstName, // maps firstName to createrFirstName
+  createrLastName: lastName,   // maps lastName to createrLastName
+  createrUserName: username    // maps username to createrUserName
+});
+
       return secureLink;
     } catch (error) {
       logger.error('Error creating secure link:', error);
@@ -521,7 +522,15 @@ const evenIdsBroadcast = async (chatId) => {
     adminStates[chatId] = { action: 'typing_broadcast' };
     await bot.sendMessage(chatId, '📝 Please type the message you want to send to all users:');
   });
-
+  bot.onText(/\/partial_broadcast/, async (msg) => {
+    const chatId = msg.chat.id;
+    if (!isAdmin(chatId)) {
+      await bot.sendMessage(chatId, '⚠️ Sorry, this command is only for admins.');
+      return;
+    }
+    adminStates[chatId] = { action: 'partial_broadcast' };
+    await partialMessage(chatId);
+  });
   // Handle /database_management command (admin only)
   bot.onText(/\/database_management/, async (msg) => {
     const chatId = msg.chat.id;
