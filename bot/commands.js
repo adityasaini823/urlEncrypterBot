@@ -8,22 +8,26 @@ const setupBot = (bot) => {
   const adminChatId = process.env.BOT_OWNER_ID;
 
   /*** Command Setup ***/
-  const setAdminCommands = async () => {
-    try {
-      await bot.setMyCommands(
-        [
-          { command: 'start', description: 'Start bot' },
-          { command: 'send_message', description: 'Broadcast (admin)' },
-          { command: 'partial_broadcast', description: 'Partial Announcement (admin)' },
-          { command: 'database_management', description: 'DB tools (admin)' }
-        ],
-        { scope: { type: 'chat', chat_id: Number(adminChatId) } }
-      );
-      logger.info('Admin commands set successfully');
-    } catch (error) {
-      logger.error('Failed to set admin commands:', error);
-    }
-  };
+  // const setAdminCommands = async () => {
+  //   try {
+  //     await bot.setMyCommands(
+  //       [
+  //         { command: 'start', description: 'Start bot' },
+  //         { command: 'send_message', description: 'Broadcast (admin)' },
+  //         { command: 'partial_broadcast', description: 'Partial Announcement (admin)' },
+  //         { command: 'database_management', description: 'DB tools (admin)' }
+  //       ],
+  //       { scope: { type: 'chat', chat_id: Number(adminChatId) } }
+  //     );
+  //     logger.info('Admin commands set successfully');
+  //   } catch (error) {
+  //     logger.error('Failed to set admin commands:', error.message);
+  //     if (error.response) {
+  //       logger.error('Response status:', error.response.statusCode);
+  //       logger.error('Response data:', error.response.body);
+  //     }
+  //   }
+  // };
 
   const setDefaultCommands = async () => {
     try {
@@ -38,8 +42,8 @@ const setupBot = (bot) => {
   };
 
   // Initialize commands
-  setAdminCommands();
-  setDefaultCommands();
+  // setAdminCommands();
+  // setDefaultCommands();
 
   /*** Admin State ***/
   // This object tracks the current admin action by chatId.
