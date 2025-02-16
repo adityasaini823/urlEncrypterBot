@@ -14,7 +14,6 @@ const setupBot = (bot) => {
         [
           { command: 'start', description: 'Start bot' },
           { command: 'send_message', description: 'Broadcast (admin)' },
-          { command: 'partial_broadcast', description: 'Partial Announcement (admin)' },
           { command: 'database_management', description: 'DB tools (admin)' }
         ],
         { scope: { type: 'chat', chat_id: Number(adminChatId) } }
@@ -57,7 +56,6 @@ const setupBot = (bot) => {
       reply_markup: {
         inline_keyboard: [
           [{ text: '📢 Send Message to All Users', callback_data: 'send_message' }],
-          [{ text: '📢 Partial Announcement', callback_data: 'partial_broadcast' }],
           [{ text: '🔒 Create Secure Link', callback_data: 'secure_link' }],
           [{ text: '📊 Database Management', callback_data: 'db_management' }]
         ]
@@ -81,7 +79,7 @@ const setupBot = (bot) => {
       reply_markup: {
         inline_keyboard: [
           [{ text: '🚫 View Blocked Users', callback_data: 'view_blocked' }],
-          [{ text: '💤 View Not Interacted Users', callback_data: 'view_chat_not_found' }],
+          [{ text: '💤 View Inactive Users', callback_data: 'view_inactive' }],
           [{ text: '🗑️ Clean Database', callback_data: 'clean_db' }],
           [{ text: '⬅️ Back to Main Menu', callback_data: 'main_menu' }]
         ]
@@ -94,23 +92,7 @@ const setupBot = (bot) => {
       logger.error('Failed to show database menu:', error);
     }
   };
-const showPartialBroadcastMenu=async(chatId)=>{
-  const partialMenuButtons = {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: 'Odd Ids', callback_data: 'odd_ids' },{ text: 'Even Ids', callback_data: 'even_ids' }],
-        [{ text: 'Newest Users', callback_data: 'newest_users '},{ text: 'Oldest Users', callback_data: 'oldest_users '}],
-        [{ text: '⬅️ Back to Main Menu', callback_data: 'main_menu' }]
-      ]
-    }
-  };
 
-  try {
-    await bot.sendMessage(chatId, 'Partial Broadcast\n\nSelect an action:', partialMenuButtons);
-  } catch (error) {
-    logger.error('Failed to show database menu:', error);
-  }
-}
   /*** Core Functions ***/
   // Check a user's bot status
   const checkBotStatus = async (userId) => {
@@ -141,7 +123,6 @@ const showPartialBroadcastMenu=async(chatId)=>{
 // Function to schedule message deletion
 function messageDeletion(userId, messageId) {
   const deletionDelay = 60 * 60 * 1000; // 1 hour in milliseconds
-  // const deletionDelay =  30000; 
   setTimeout(async () => {
     try {
       await bot.deleteMessage(userId, messageId);
@@ -161,31 +142,30 @@ const handleBroadcast = async (chatId) => {
     await bot.sendMessage(chatId, '❌ Sorry, no message found to broadcast.');
     return;
   }
-
-  const targetUsers = adminStates[chatId].targetUsers || (await User.find({ telegramUserId: { $exists: true } })).map(user => user.telegramUserId);
-  const stats = {
-    total: targetUsers.length,
-    sent: 0,
-    failed: 0,
-    blocked: 0,
-    deleted: 0,
-    notFound: 0
-  };
-
   await bot.sendMessage(chatId, '📣 Starting broadcast...');
   try {
-    for (let i = 0; i < targetUsers.length; i++) {
+    const users = await User.find({ telegramUserId: { $exists: true } });
+    const stats = {
+      total: users.length,
+      sent: 0,
+      failed: 0,
+      blocked: 0,
+      deleted: 0,
+      notFound: 0
+    };
+
+    for (let i = 0; i < users.length; i++) {
       try {
         // Send the broadcast message and capture the sent message's details
         const sentMessage = await bot.sendMessage(
-          targetUsers[i],
+          users[i].telegramUserId,
           adminStates[chatId].messageText,
           { disable_web_page_preview: true }
         );
         stats.sent++;
 
         // Schedule deletion of the sent message after the specified delay
-        messageDeletion(targetUsers[i], sentMessage.message_id);
+        messageDeletion(users[i].telegramUserId, sentMessage.message_id);
 
         // Delay to avoid rate limits
         if ((i + 1) % 30 === 0) {
@@ -208,7 +188,7 @@ const handleBroadcast = async (chatId) => {
           else if (error.response.statusCode === 400) stats.notFound++;
         }
         stats.failed++;
-        logger.error(`Failed to send to user ${targetUsers[i]}:`, error.message);
+        logger.error(`Failed to send to user ${users[i].telegramUserId}:`, error.message);
       }
     }
 
@@ -221,7 +201,7 @@ const handleBroadcast = async (chatId) => {
         `❌ Failed: ${stats.failed}\n` +
         `🚫 Bot Blocked: ${stats.blocked}\n` +
         `🗑️ Deleted Accounts: ${stats.deleted}\n` +
-        `❓Chat Not Found: ${stats.notFound}`
+        `❓ Not Found: ${stats.notFound}`
     );
   } catch (error) {
     logger.error('Broadcast error:', error);
@@ -231,9 +211,7 @@ const handleBroadcast = async (chatId) => {
   await showAdminMenu(chatId);
 };
 
-const partialMessage=(chatId)=>{
-showPartialBroadcastMenu(chatId);
-}
+
   /*** Database Cleanup Handlers ***/
   const handleViewBlocked = async (chatId) => {
     try {
@@ -261,104 +239,29 @@ showPartialBroadcastMenu(chatId);
     }
   };
 
-  // const handleViewInactive = async (chatId) => {
-  //   try {
-  //     const thirtyDaysAgo = new Date();
-  //     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-  //     const inactiveUsers = await User.find({
-  //       lastInteraction: { $lt: thirtyDaysAgo }
-  //     });
-
-  //     if (inactiveUsers.length > 0) {
-  //       let message = '💤 Users inactive for 30+ days:\n\n';
-  //       inactiveUsers.forEach(user => {
-  //         message += `ID: ${user.telegramUserId}\n`;
-  //         message += `Name: ${user.firstName || 'N/A'} ${user.lastName || ''}\n`;
-  //         message += `Last Active: ${new Date(user.lastInteraction).toLocaleDateString()}\n\n`;
-  //       });
-  //       await bot.sendMessage(chatId, message);
-  //     } else {
-  //       await bot.sendMessage(chatId, '✅ No inactive users found!');
-  //     }
-  //   } catch (error) {
-  //     logger.error('Error checking inactive users:', error);
-  //     await bot.sendMessage(chatId, '❌ Error checking inactive users');
-  //   }
-  // };
-
-  const clearDeletedUsers = async (chatId) => {
+  const handleViewInactive = async (chatId) => {
     try {
-      await bot.sendMessage(chatId, '🔍 Checking for deleted accounts...');
-      const users = await User.find({});
-      let deletedCount = 0;
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      for (const user of users) {
-        const status = await checkBotStatus(user.telegramUserId);
-        if (status === 'deleted') {
-          await User.deleteOne({ telegramUserId: user.telegramUserId });
-          deletedCount++;
-        }
+      const inactiveUsers = await User.find({
+        lastInteraction: { $lt: thirtyDaysAgo }
+      });
+
+      if (inactiveUsers.length > 0) {
+        let message = '💤 Users inactive for 30+ days:\n\n';
+        inactiveUsers.forEach(user => {
+          message += `ID: ${user.telegramUserId}\n`;
+          message += `Name: ${user.firstName || 'N/A'} ${user.lastName || ''}\n`;
+          message += `Last Active: ${new Date(user.lastInteraction).toLocaleDateString()}\n\n`;
+        });
+        await bot.sendMessage(chatId, message);
+      } else {
+        await bot.sendMessage(chatId, '✅ No inactive users found!');
       }
-
-      await bot.sendMessage(
-        chatId,
-        `🗑️ Deleted Accounts Cleanup:\n\n` +
-          `Total Users Checked: ${users.length}\n` +
-          `Deleted Accounts Removed: ${deletedCount}`
-      );
     } catch (error) {
-      logger.error('Error clearing deleted users:', error);
-      await bot.sendMessage(chatId, '❌ Error occurred while clearing deleted users.');
-    }
-  };
-const viewChatnotFoundUsers=async(chatId)=>{
-  try {
-    await bot.sendMessage(chatId, '🔍 Checking for users not found in chat...');
-    const users = await User.find({});
-    let notFoundCount = 0;
-    for (const user of users) {
-      const status = await checkBotStatus(user.telegramUserId);
-      if (status === 'error') {
-        notFoundCount++;
-      }
-    }
-    await bot.sendMessage(
-      chatId,
-      `📊 Block Status:\n\n` +
-        `Total Users: ${users.length}\n` +
-        `User Not Interacted Bot: ${notFoundCount}\n`
-    );
-  } catch (error) {
-    logger.error('Error checking blocked users:', error);
-    await bot.sendMessage(chatId, '❌ Error checking blocked users');
-  }
-  }
-  
-
-  const clearChatNotFoundUsers = async (chatId) => {
-    try {
-      await bot.sendMessage(chatId, '🔍 Checking for users with chat not found...');
-      const users = await User.find({});
-      let notFoundCount = 0;
-
-      for (const user of users) {
-        const status = await checkBotStatus(user.telegramUserId);
-        if (status === 'error') {
-          await User.deleteOne({ telegramUserId: user.telegramUserId });
-          notFoundCount++;
-        }
-      }
-
-      await bot.sendMessage(
-        chatId,
-        `❓ Chat Not Found Cleanup:\n\n` +
-          `Total Users Checked: ${users.length}\n` +
-          `Users Removed: ${notFoundCount}`
-      );
-    } catch (error) {
-      logger.error('Error clearing users with chat not found:', error);
-      await bot.sendMessage(chatId, '❌ Error occurred while clearing users with chat not found.');
+      logger.error('Error checking inactive users:', error);
+      await bot.sendMessage(chatId, '❌ Error checking inactive users');
     }
   };
 
@@ -367,8 +270,8 @@ const viewChatnotFoundUsers=async(chatId)=>{
       reply_markup: {
         inline_keyboard: [
           [
-            { text: '🗑️ Remove Deleted Accounts', callback_data: 'remove_deleted' },
-            { text: '❓ Remove Chat Not Found', callback_data: 'remove_chat_not_found' }
+            { text: '🗑️ Remove Blocked', callback_data: 'remove_blocked' },
+            { text: '🗑️ Remove Inactive', callback_data: 'remove_inactive' }
           ],
           [{ text: '⬅️ Back', callback_data: 'db_management' }]
         ]
@@ -381,57 +284,43 @@ const viewChatnotFoundUsers=async(chatId)=>{
       cleanupOptions
     );
   };
-const oddIdsBroadcast=async(chatId)=>{
-  adminStates[chatId] = { action: 'typing_broadcast', targetType: 'odd_ids' };
-  try {
-    const users = await User.find({});
-    const oddUsers = users.filter(user => user.telegramUserId % 2 !== 0);
-    
-    if (oddUsers.length === 0) {
-      await bot.sendMessage(chatId, '❌ No users with odd IDs found');
-      return;
+
+  const handleRemoveBlocked = async (chatId) => {
+    try {
+      await bot.sendMessage(chatId, '🔍 Checking and removing blocked users...');
+      const users = await User.find({});
+      let removedCount = 0;
+
+      for (const user of users) {
+        const status = await checkBotStatus(user.telegramUserId);
+        if (status === 'blocked') {
+          await User.deleteOne({ _id: user._id });
+          removedCount++;
+        }
+      }
+
+      await bot.sendMessage(chatId, `✅ Cleanup completed!\nRemoved ${removedCount} blocked users`);
+    } catch (error) {
+      logger.error('Error removing blocked users:', error);
+      await bot.sendMessage(chatId, '❌ Error during cleanup');
     }
+  };
 
-    await bot.sendMessage(
-      chatId, 
-      `📝 Found ${oddUsers.length} users with odd IDs. Please type the message you want to send to them:`
-    );
+  const handleRemoveInactive = async (chatId) => {
+    try {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    // Store odd user IDs in state for later use
-    adminStates[chatId].targetUsers = oddUsers.map(user => user.telegramUserId);
+      const result = await User.deleteMany({
+        lastInteraction: { $lt: thirtyDaysAgo }
+      });
 
-  } catch (error) {
-    logger.error('Error getting odd ID users:', error);
-    await bot.sendMessage(chatId, '❌ Error getting users with odd IDs');
-    delete adminStates[chatId];
-  }
-}
-
-const evenIdsBroadcast = async (chatId) => {
-  adminStates[chatId] = { action: 'typing_broadcast', targetType: 'even_ids' };
-  try {
-    const users = await User.find({});
-    const evenUsers = users.filter(user => user.telegramUserId % 2 === 0);
-    
-    if (evenUsers.length === 0) {
-      await bot.sendMessage(chatId, '❌ No users with even IDs found');
-      return;
+      await bot.sendMessage(chatId, `✅ Cleanup completed!\nRemoved ${result.deletedCount} inactive users`);
+    } catch (error) {
+      logger.error('Error removing inactive users:', error);
+      await bot.sendMessage(chatId, '❌ Error during cleanup');
     }
-
-    await bot.sendMessage(
-      chatId, 
-      `📝 Found ${evenUsers.length} users with even IDs. Please type the message you want to send to them:`
-    );
-
-    // Store even user IDs in state for later use
-    adminStates[chatId].targetUsers = evenUsers.map(user => user.telegramUserId);
-
-  } catch (error) {
-    logger.error('Error getting even ID users:', error);
-    await bot.sendMessage(chatId, '❌ Error getting users with even IDs');
-    delete adminStates[chatId];
-  }
-}
+  };
 
   /*** Bot Event Handlers ***/
   // Handle incoming messages
@@ -449,14 +338,7 @@ const evenIdsBroadcast = async (chatId) => {
       switch (currentState.action) {
         case 'typing_broadcast':
           // Save message and show preview for broadcast
-          console.log(adminStates);
-          // adminStates[chatId] = { action: 'previewing_broadcast', messageText };
-          adminStates[chatId] = { 
-            ...adminStates[chatId], // preserve existing properties like targetUsers
-            action: 'previewing_broadcast', 
-            messageText 
-          };
-          
+          adminStates[chatId] = { action: 'previewing_broadcast', messageText };
           await bot.sendMessage(
             chatId,
             `📝 Here's how your message will look:\n\n${messageText}\n\nWould you like to send it?`,
@@ -565,18 +447,11 @@ const evenIdsBroadcast = async (chatId) => {
         await bot.sendMessage(chatId, '🔒 Please send the link you want to secure:');
         break;
       case 'send_broadcast':
-        if (adminStates[chatId] && adminStates[chatId].messageText) {
-          await handleBroadcast(chatId);
-        } else {
-          await bot.sendMessage(chatId, '❌ No message found to broadcast. Please type your message again.');
-        }
+        await handleBroadcast(chatId);
         break;
       case 'edit_broadcast':
         adminStates[chatId] = { action: 'typing_broadcast' };
         await bot.sendMessage(chatId, '📝 Please type your new message:');
-        break;
-      case 'partial_broadcast':
-        await partialMessage(chatId);
         break;
       case 'db_management':
         await showDatabaseMenu(chatId);
@@ -587,26 +462,17 @@ const evenIdsBroadcast = async (chatId) => {
       case 'view_blocked':
         await handleViewBlocked(chatId);
         break;
-      // case 'view_inactive':
-      // await handleViewInactive(chatId);
-      //   break;
+      case 'view_inactive':
+        await handleViewInactive(chatId);
+        break;
       case 'clean_db':
         await showCleanupOptions(chatId);
         break;
-      case 'remove_deleted':
-        await clearDeletedUsers(chatId);
+      case 'remove_blocked':
+        await handleRemoveBlocked(chatId);
         break;
-      case 'view_chat_not_found':
-        viewChatnotFoundUsers(chatId);
-        break;
-      case 'remove_chat_not_found':
-        await clearChatNotFoundUsers(chatId);
-        break;
-      case 'odd_ids':
-          oddIdsBroadcast(chatId);
-        break;
-      case 'even_ids':
-        evenIdsBroadcast(chatId);
+      case 'remove_inactive':
+        await handleRemoveInactive(chatId);
         break;
       default:
         break;
