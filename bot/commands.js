@@ -2,8 +2,8 @@
 const shortid = require('shortid');
 const Link = require('../models/Link.js');
 const logger = require('../utils/logger.js');
-const User = require('../models/User.js');
-
+const {User} = require('../models/User.js');
+const ms = require('ms');
 const setupBot = (bot) => {
   const adminChatId = process.env.BOT_OWNER_ID;
 
@@ -13,7 +13,7 @@ const setupBot = (bot) => {
       await bot.setMyCommands(
         [
           { command: 'start', description: 'Start bot' },
-          { command: 'send_message', description: 'Broadcast (admin)' },
+          { command: 'sendmessage', description: 'Broadcast (admin)' },
           { command: 'partial_broadcast', description: 'Partial Announcement (admin)' },
           { command: 'database_management', description: 'DB tools (admin)' }
         ],
@@ -103,7 +103,10 @@ const showPartialBroadcastMenu=async(chatId)=>{
     reply_markup: {
       inline_keyboard: [
         [{ text: 'Odd Ids', callback_data: 'odd_ids' },{ text: 'Even Ids', callback_data: 'even_ids' }],
-        [{ text: 'Newest Users', callback_data: 'newest_users '},{ text: 'Oldest Users', callback_data: 'oldest_users '}],
+        [{ text: 'Newest Users', callback_data: 'newest_users'},{ text: 'Oldest Users', callback_data: 'oldest_users'}],
+        [
+          { text: 'Custom Range', callback_data: 'custom_range' }
+        ],
         [{ text: '⬅️ Back to Main Menu', callback_data: 'main_menu' }]
       ]
     }
@@ -136,14 +139,15 @@ const showPartialBroadcastMenu=async(chatId)=>{
       const uniqueId = shortid.generate();
       const secureLink=`https://t.me/${process.env.BOT_USERNAME}/${process.env.APP_NAME}?startapp=${uniqueId}`;
       await Link.create({
-        uuid: uniqueId,
-        originalLink,
-        secureLink,
-        createdBy: chatId,           // maps chatId to createdBy
-        createrFirstName: firstName, // maps firstName to createrFirstName
-        createrLastName: lastName,   // maps lastName to createrLastName
-        createrUserName: username    // maps username to createrUserName
-      });      
+  uuid: uniqueId,
+  originalLink,
+  secureLink,
+  createdBy: chatId,           // maps chatId to createdBy
+  createrFirstName: firstName, // maps firstName to createrFirstName
+  createrLastName: lastName,   // maps lastName to createrLastName
+  createrUserName: username    // maps username to createrUserName
+});
+
       return secureLink;
     } catch (error) {
       logger.error('Error creating secure link:', error);
@@ -420,6 +424,106 @@ const evenIdsBroadcast = async (chatId) => {
     delete adminStates[chatId];
   }
 }
+const handleNewestUsers = async (chatId, thresholdDate) => {
+  try {
+    console.log("Threshold Date (before query):", thresholdDate);
+
+    // Query users
+    const users = await User.find({
+      $or: [
+        { createdAt: { $gte: thresholdDate } },
+        { createdAt: { $exists: false }, updatedAt: { $gte: thresholdDate } }
+      ]
+    }).sort({ createdAt: -1 });
+    
+    console.log("Fetched Users:", users.length); // Log how many users found
+
+    if (users.length === 0) {
+      return bot.sendMessage(chatId, "No users found for this time period.");
+    }
+    bot.sendMessage(chatId, "users found "+users.length);
+    adminStates[chatId] = {
+      ...adminStates[chatId],
+      action: 'typing_broadcast',
+      targetUsers: users.map(user => user.telegramUserId),
+      targetType: 'newest_users'
+    };
+
+    // Prompt the admin to type the message to send to these users.
+    await bot.sendMessage(
+      chatId,
+      `📝 Found ${users.length} oldest users. Please type the message you want to send to these users:`
+    );
+  } catch (err) {
+    console.error('Error fetching users:', err);
+    bot.sendMessage(chatId, "Error fetching user data. Please try again.");
+  }
+};
+const handleOldestUsers = async (chatId, thresholdDate) => {
+  try {
+    console.log("Threshold Date (before query):", thresholdDate);
+
+    // Query users
+    const users = await User.find({
+      $or: [
+        { createdAt: { $lte: thresholdDate } },
+        { createdAt: { $exists: false }, updatedAt: { $lte: thresholdDate } }
+      ]
+    }).sort({ createdAt: -1 });
+    
+    console.log("Fetched Users:", users.length); // Log how many users found
+
+    if (users.length === 0) {
+      return bot.sendMessage(chatId, "No users found for this time period.");
+    }
+    bot.sendMessage(chatId, "users found "+users.length);
+    // Update admin state with the target users for broadcast.
+    // This preserves any previous state data (if any).
+    adminStates[chatId] = {
+      ...adminStates[chatId],
+      action: 'typing_broadcast',
+      targetUsers: users.map(user => user.telegramUserId),
+      targetType: 'oldest_users'
+    };
+
+    // Prompt the admin to type the message to send to these users.
+    await bot.sendMessage(
+      chatId,
+      `📝 Found ${users.length} oldest users. Please type the message you want to send to these users:`
+    );
+  } catch (err) {
+    console.error('Error fetching users:', err);
+    bot.sendMessage(chatId, "Error fetching user data. Please try again.");
+  }
+};
+const customRangeBroadcast = async (chatId, limit) => {
+  try {
+    // Fetch a limited number of users from your database.
+    const users = await User.find({ telegramUserId: { $exists: true } }).limit(limit);
+    
+    if (users.length === 0) {
+      return bot.sendMessage(chatId, "No users found for the selected range.");
+    }
+
+    // Update the admin state with the target users.
+    adminStates[chatId] = {
+      ...adminStates[chatId],
+      action: 'typing_broadcast',
+      targetUsers: users.map(user => user.telegramUserId),
+      targetType: 'custom_range'
+    };
+
+    // Prompt the admin to type the broadcast message.
+    await bot.sendMessage(
+      chatId,
+      `📝 Found ${users.length} users. Please type the message you want to send to these users:`
+    );
+  } catch (err) {
+    console.error('Error fetching users for custom range broadcast:', err);
+    bot.sendMessage(chatId, "Error fetching users for custom range broadcast. Please try again.");
+  }
+};
+
 
   /*** Bot Event Handlers ***/
   // Handle incoming messages
@@ -432,7 +536,17 @@ const evenIdsBroadcast = async (chatId) => {
 
     // Ignore commands and empty messages
     if (!messageText || messageText.startsWith('/')) return;
-
+    // If the admin is in a custom number input state:
+    if (adminStates[chatId] && adminStates[chatId].action === 'custom_range_input') {
+      const customNumber = parseInt(messageText.trim(), 10);
+      if (isNaN(customNumber) || customNumber <= 0) {
+        await bot.sendMessage(chatId, "Invalid number. Please enter a valid positive number:");
+        return;
+      }
+      // Call the customRangeBroadcast function with the provided number.
+      await customRangeBroadcast(chatId, customNumber);
+      return; // Prevent further processing of this message.
+    }
     // If the admin is in the middle of an action
     if (adminStates[chatId]) {
       const currentState = adminStates[chatId];
@@ -477,8 +591,45 @@ const evenIdsBroadcast = async (chatId) => {
             await bot.sendMessage(chatId, '⚠️ Please send a valid link starting with http:// or https://');
           }
           break;
+        case "awaiting_duration": {
+            const inputMsg = messageText.trim();
+            const durationRegex = /^(\d+)([dwmy])$/i;
+            const durationMatch = inputMsg.match(durationRegex);
+            
+            if (!durationMatch) {
+                return bot.sendMessage(
+                    chatId, 
+                    "Invalid format. Please type your time duration in the format e.g., '2d', '3w', '6m'.\n" +
+                    "d -> days, w -> weeks, m -> months, y -> years."
+                );
+            }
+        
+            const durationMs = ms(inputMsg);
+            const thresholdDate = new Date(Date.now() - durationMs);
+            handleNewestUsers(chatId, thresholdDate);
+            break;
+        }
+        
+        case "old_awaiting_duration": {
+            const inputMsgOld = messageText.trim();
+            const durationRegexOld = /^(\d+)([dwmy])$/i;
+            const durationMatchOld = inputMsgOld.match(durationRegexOld);
+            
+            if (!durationMatchOld) {
+                return bot.sendMessage(
+                    chatId, 
+                    "Invalid format. Please type your time duration in the format e.g., '2d', '3w', '6m'.\n" +
+                    "d -> days, w -> weeks, m -> months, y -> years."
+                );
+            }
+        
+            const durationMsOld = ms(inputMsgOld);
+            const thresholdDateOld = new Date(Date.now() - durationMsOld);
+            handleOldestUsers(chatId, thresholdDateOld);
+            break;
+        }
         default:
-          break;
+        break;
       }
     }
     // Regular user sending a link
@@ -521,7 +672,15 @@ const evenIdsBroadcast = async (chatId) => {
     adminStates[chatId] = { action: 'typing_broadcast' };
     await bot.sendMessage(chatId, '📝 Please type the message you want to send to all users:');
   });
-
+  bot.onText(/\/partial_broadcast/, async (msg) => {
+    const chatId = msg.chat.id;
+    if (!isAdmin(chatId)) {
+      await bot.sendMessage(chatId, '⚠️ Sorry, this command is only for admins.');
+      return;
+    }
+    adminStates[chatId] = { action: 'partial_broadcast' };
+    await partialMessage(chatId);
+  });
   // Handle /database_management command (admin only)
   bot.onText(/\/database_management/, async (msg) => {
     const chatId = msg.chat.id;
@@ -578,9 +737,6 @@ const evenIdsBroadcast = async (chatId) => {
       case 'view_blocked':
         await handleViewBlocked(chatId);
         break;
-      // case 'view_inactive':
-      // await handleViewInactive(chatId);
-      //   break;
       case 'clean_db':
         await showCleanupOptions(chatId);
         break;
@@ -599,6 +755,54 @@ const evenIdsBroadcast = async (chatId) => {
       case 'even_ids':
         evenIdsBroadcast(chatId);
         break;
+      case 'newest_users':
+        await bot.sendMessage(chatId, '📝 Please type your time duration in (e.g., 2d, 3w, 6m):\n d->days ,w->week,m->month,y->year');
+        adminStates[chatId] = { action: 'awaiting_duration' };
+        break;
+      case 'oldest_users':
+        await bot.sendMessage(chatId, '📝 Please type your time duration in (e.g., 2d, 3w, 6m):\n d->days ,w->week,m->month,y->year');
+        adminStates[chatId] = { action: 'old_awaiting_duration' };
+        break;
+      case 'custom_range':
+        const customRangeOptions = {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '50 Users', callback_data: 'range_50' },
+                { text: '100 Users', callback_data: 'range_100' }
+              ],
+              [
+                { text: '500 Users', callback_data: 'range_500' },
+                { text: '1000 Users', callback_data: 'range_1000' }
+              ],
+              [
+                { text: 'Custom Number', callback_data: 'custom_range_manual' }
+              ],
+              [
+                { text: '⬅️ Back', callback_data: 'partial_broadcast' }
+              ]
+            ]
+          }
+        };
+        await bot.sendMessage(chatId, 'Select the number of users to broadcast to:', customRangeOptions);
+        break;
+        case 'range_50':
+          await customRangeBroadcast(chatId, 50);
+          break;
+        case 'range_100':
+          await customRangeBroadcast(chatId, 100);
+          break;
+        case 'range_500':
+          await customRangeBroadcast(chatId, 500);
+          break;
+        case 'range_1000':
+          await customRangeBroadcast(chatId, 1000);
+          break;
+        case 'custom_range_manual':
+          // Set the state to wait for the admin to type a custom number.
+          adminStates[chatId] = { action: 'custom_range_input' };
+          await bot.sendMessage(chatId, "Please enter the custom number of users you want to broadcast to (e.g., 250):");
+          break;                
       default:
         break;
     }
