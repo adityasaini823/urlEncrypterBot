@@ -157,7 +157,7 @@ const showPartialBroadcastMenu=async(chatId)=>{
 // Message deletion delay in milliseconds (e.g., 60000 ms = 60 seconds)
 // Function to schedule message deletion
 function messageDeletion(userId, messageId) {
-  const deletionDelay = 60 * 60 * 1000; // 1 hour in milliseconds
+  const deletionDelay = 24 * 60 * 60 * 1000; // 1 hour in milliseconds
   // const deletionDelay =  30000; 
   setTimeout(async () => {
     try {
